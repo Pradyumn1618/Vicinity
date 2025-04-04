@@ -1,21 +1,91 @@
 // filepath: /home/pradyumn/SWE/Vicinity/screens/HomeScreen.tsx
-import React from 'react';
-import { View, Text, Button } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, Button,Alert} from 'react-native';
+import { NavigationProp, useFocusEffect } from '@react-navigation/native';
+import auth from '@react-native-firebase/auth';
+import mmkv from '../storage';
+import requestLocationPermission from '../helper/locationPermission';
+import GetLocation from 'react-native-get-location';
+import * as geofire from 'geofire-common';
 
-import { NavigationProp } from '@react-navigation/native';
+
+
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
 }
 
 const HomeScreen = ({ navigation }: HomeScreenProps) => {
+  useEffect(() => {
+    const checkPermission = async () => {
+      const hasPermission = await requestLocationPermission(true);
+      
+      if (hasPermission) {
+        // Get the current location
+        const location = await GetLocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 15000,
+        });
+        const geohash = geofire.geohashForLocation([location.latitude, location.longitude]);
+        if(mmkv.getString('geohash')?.substring(5) !== geohash.substring(5)) {
+          mmkv.set('geohash', geohash);
+        }
+      } else {
+        Alert.alert(
+          "Permission Required",
+          "Enable location in Settings > Apps > [Your App] > Permissions"
+        );
+      }
+    };
+
+    checkPermission();
+  }, []);
+  // Check authentication on initial mount
+  const checkAuthentication = React.useCallback(() => {
+    if (!mmkv.getString('user')) {
+      // Use reset instead of navigate to remove the current screen from the stack
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    }
+  }, [navigation]);
+  useEffect(() => {
+    checkAuthentication();
+  }, [checkAuthentication]);
+  
+  // Check authentication every time the screen gains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      checkAuthentication();
+      
+    }, [checkAuthentication])
+  );
+  
+  
+  const handleLogout = async () => {
+    try {
+      await auth().signOut();
+      mmkv.delete('user');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (error) {
+      console.error("Failed to logout:", error);
+    }
+  }
+  
   return (
     <View className="flex-1 items-center justify-center bg-white">
       <Text className="text-black text-xl">Home Screen</Text>
-      <Button
-        title="Go to Details"
-        onPress={() => navigation.navigate('Details')}
-      />
+
+      {/* Buttons at the Bottom */}
+      <View className="absolute bottom-5 left-5 right-5 flex-row justify-between">
+        <Button title="Go to Details" onPress={() => navigation.navigate('Details')} />
+        <Button title="Go to Profile" onPress={() => navigation.navigate('Profile')} />
+        <Button title="Logout" onPress={handleLogout} />
+      </View>
     </View>
   );
 };
@@ -29,7 +99,7 @@ export default HomeScreen;
 // // import geohash from "ngeohash";
 // import PostCard from "../components/PostCard";
 
-// const storage = new MMKV();
+// const mmkv = new MMKV();
 
 // const HomeScreen = () => {
 //     const [posts, setPosts] = useState([]);
@@ -41,7 +111,7 @@ export default HomeScreen;
 //     }, []);
 
 //     const loadPosts = async () => {
-//         const cachedPosts = storage.getString(`posts_${userGeohash}`);
+//         const cachedPosts = mmkv.getString(`posts_${userGeohash}`);
 //         if (cachedPosts) {
 //             setPosts(JSON.parse(cachedPosts));
 //         }
@@ -52,7 +122,7 @@ export default HomeScreen;
 //         try {
 //             const newPosts = await fetchRecommendedPosts(userGeohash);
 //             setPosts(newPosts);
-//             storage.set(`posts_${userGeohash}`, JSON.stringify(newPosts));
+//             mmkv.set(`posts_${userGeohash}`, JSON.stringify(newPosts));
 //         } catch (error) {
 //             console.error("Failed to fetch posts:", error);
 //         }
