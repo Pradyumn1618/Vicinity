@@ -121,8 +121,23 @@ import './global.css';
 // filepath: /home/pradyumn/SWE/Vicinity/App.tsx
 import React from 'react';
 import Navigation from './navigation';
+import { useEffect } from 'react';
+import { Alert } from 'react-native';
+import messaging from '@react-native-firebase/messaging';
 
 const App = () => {
+  useEffect(() => {
+    const unsubscribe = messaging().onMessage(async remoteMessage => {
+      console.log('📩 Received in foreground:', remoteMessage);
+      if (remoteMessage.notification) {
+        const title = remoteMessage.notification.title || 'Notification';
+        const body = remoteMessage.notification.body || 'You have a new message.';
+        Alert.alert(title, body);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
   return <Navigation />;
 };
 

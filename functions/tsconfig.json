@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "es2017",
+    "module": "commonjs",                  // <-- Changed from NodeNext to commonjs
+    "lib": ["esnext"],                     // <-- Added: only modern JS, no DOM
+    "moduleResolution": "node",            // <-- Changed from nodenext to node
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "outDir": "lib",
+    "sourceMap": true,
+    "strict": true,
+    "skipLibCheck": true,
+    
+    "types": ["node", "firebase-functions", "firebase-admin"]  // <-- Added for better DX
+  },
+  "compileOnSave": true,
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}

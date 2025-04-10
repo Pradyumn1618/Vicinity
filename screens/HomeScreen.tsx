@@ -7,6 +7,11 @@ import mmkv from '../storage';
 import requestLocationPermission from '../helper/locationPermission';
 import GetLocation from 'react-native-get-location';
 import * as geofire from 'geofire-common';
+import sendNotificationAsync from '../helper/sendNotification';
+import { getFirestore, doc, getDoc } from "@react-native-firebase/firestore";
+import messaging from '@react-native-firebase/messaging';
+
+
 
 
 
@@ -75,11 +80,43 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
       console.error("Failed to logout:", error);
     }
   }
+
+  const sendNotification = async () => {
+    const user = auth().currentUser;
+    if (!user) return;
+
+    const db = getFirestore();
+    const userRef = doc(db, "users", user.uid);
+    const docSnap = await getDoc(userRef);
+
+    if (docSnap.exists) {
+      const data = docSnap.data();
+      const token = data?.fcmToken;
+      if (token) {
+        await messaging().requestPermission();
+        const authStatus = await messaging().hasPermission();
+        if (authStatus !== messaging.AuthorizationStatus.AUTHORIZED) {
+          console.log('Notification permission not granted');
+          return;
+        }
+        try {
+          await sendNotificationAsync([token]);
+        }
+        catch (error) {
+          Alert.alert("Error", error instanceof Error ? error.message : "An unknown error occurred");
+        }
+      } else {
+        console.log("No token found for the user");
+      }
+    } else {
+      console.log("No such document!");
+    }
+  }
   
   return (
     <View className="flex-1 items-center justify-center bg-white">
       <Text className="text-black text-xl">Home Screen</Text>
-
+      <Button title="Send Noti" onPress={()=>sendNotification()}/>
       {/* Buttons at the Bottom */}
       <View className="absolute bottom-5 left-5 right-5 flex-row justify-between">
         <Button title="Go to Details" onPress={() => navigation.navigate('Details')} />
