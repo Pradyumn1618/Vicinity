@@ -1,22 +1,59 @@
-import React, { useState } from 'react';
+// Make sure you're using modular imports
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, FlatList, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { getFirestore, collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import Geohash from 'ngeohash';
 
-const onlineUsers = [
-  { id: '1', username: 'mariio5', photoURL: 'https://example.com/mariio.jpg' },
-  { id: '2', username: 'lea.98', photoURL: 'https://example.com/lea.jpg' },
-  { id: '3', username: 'loco_cafe', photoURL: 'https://example.com/loco.jpg' },
-  { id: '4', username: 'gabriel.g', photoURL: 'https://example.com/gabriel.jpg' },
-];
-
-const messages = [
-  { id: '1', username: 'mariio5', message: 'You owe me money! Respond!', time: 'Just now', photoURL: 'https://example.com/mariio.jpg' },
-  { id: '2', username: 'lea.98', message: "I'm afraid he will sue me...", time: '12 min.', photoURL: 'https://example.com/lea.jpg' },
-  { id: '3', username: 'gabriel.g', message: "Hello, can you answer? What's wrong with...", time: '1 d.', photoURL: 'https://example.com/gabriel.jpg' },
-];
+const db = getFirestore();
+const auth = getAuth();
 
 export default function InboxScreen() {
   const [tab, setTab] = useState('messages');
+  const [onlineUsers, setOnlineUsers] = useState<{ id: string; photoURL?: string; username?: string }[]>([]);
+  interface Message {
+    id: string;
+    photoURL: string;
+    username: string;
+    time: string;
+    message: string;
+  }
+
+  const [messages, setMessages] = useState<Message[]>([]); // Later populate this with Firestore chat history
+
+  useEffect(() => {
+    const fetchNearbyOnlineUsers = async () => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+
+        const userSnap = await getDoc(doc(db, 'users', userId));
+        const userData = userSnap.data();
+        if (!userData || !userData.geohash) {
+          console.error('❌ User data or geohash is missing');
+          return;
+        }
+        const { geohash: currentGeohash } = userData;
+
+        const neighbors = Geohash.neighbors(currentGeohash);
+        const hashesToQuery = [currentGeohash, ...neighbors];
+
+        const userFetchPromises = hashesToQuery.map(async hash => {
+          const bucketRef = collection(db, 'geoBuckets', hash, 'onlineUsers');
+          const snapshot = await getDocs(bucketRef);
+          return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        });
+
+        const nearbyUsers = (await Promise.all(userFetchPromises)).flat();
+        setOnlineUsers(nearbyUsers);
+      } catch (error) {
+        console.error('❌ Error fetching online users:', error);
+      }
+    };
+
+    fetchNearbyOnlineUsers();
+  }, []);
 
   return (
     <View className="flex-1 bg-black px-4 pt-6">
