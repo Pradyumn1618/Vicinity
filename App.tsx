@@ -124,6 +124,8 @@ import Navigation from './navigation';
 import { useEffect } from 'react';
 import { Alert } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
+import SocketProvider from './helper/socketProvider';
+
 
 const App = () => {
   useEffect(() => {
@@ -138,7 +140,10 @@ const App = () => {
 
     return unsubscribe;
   }, []);
-  return <Navigation />;
+  return (
+    <SocketProvider>
+      <Navigation />
+    </SocketProvider>)
 };
 
 export default App;
