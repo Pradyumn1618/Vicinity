@@ -1,6 +1,6 @@
 // filepath: /home/pradyumn/SWE/Vicinity/screens/HomeScreen.tsx
 import React, { useEffect } from 'react';
-import { View, Text, Button,Alert} from 'react-native';
+import { View, Text, Button,Alert,TouchableOpacity} from 'react-native';
 import { NavigationProp, useFocusEffect } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import mmkv from '../storage';
@@ -10,6 +10,8 @@ import * as geofire from 'geofire-common';
 import sendNotificationAsync from '../helper/sendNotification';
 import { getFirestore, doc, getDoc } from "@react-native-firebase/firestore";
 import messaging from '@react-native-firebase/messaging';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+
 
 
 
@@ -114,17 +116,34 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   }
   
   return (
-    <View className="flex-1 items-center justify-center bg-white">
-      <Text className="text-black text-xl">Home Screen</Text>
-      <Button title="Send Noti" onPress={()=>sendNotification()}/>
-      {/* Buttons at the Bottom */}
-      <View className="absolute bottom-5 left-5 right-5 flex-row justify-between">
-        <Button title="Go to Details" onPress={() => navigation.navigate('Details')} />
-        <Button title="Go to Profile" onPress={() => navigation.navigate('Profile')} />
-        <Button title="Logout" onPress={handleLogout} />
-      </View>
+    <View className="flex-1 items-center justify-center bg-black">
+    <Text className="text-white text-xl">Home Screen</Text>
+    <Button title="Send Noti" onPress={() => sendNotification()} color="#4F46E5" /> {/* Optional custom color for visibility */}
+  
+    {/* Bottom Navigation Buttons */}
+    <View className="absolute bottom-5 left-5 right-5 flex-row justify-around bg-zinc-900 py-3 rounded-xl shadow-lg border border-zinc-800" >
+      <TouchableOpacity onPress={() => navigation.navigate('Details')} className="items-center">
+        <Ionicons name="information-circle-outline" size={24} color="white" />
+        <Text className="text-white text-xs mt-1">Details</Text>
+      </TouchableOpacity>
+  
+      <TouchableOpacity onPress={() => navigation.navigate('Profile')} className="items-center">
+        <Ionicons name="person-outline" size={24} color="white" />
+        <Text className="text-white text-xs mt-1">Profile</Text>
+      </TouchableOpacity>
+  
+      <TouchableOpacity onPress={() => navigation.navigate('Inbox')} className="items-center">
+        <Ionicons name="chatbubble-outline" size={24} color="white" />
+        <Text className="text-white text-xs mt-1">Chat</Text>
+      </TouchableOpacity>
+  
+      <TouchableOpacity onPress={handleLogout} className="items-center">
+        <Ionicons name="log-out-outline" size={24} color="white" />
+        <Text className="text-white text-xs mt-1">Logout</Text>
+      </TouchableOpacity>
     </View>
-  );
+  </View>
+  );  
 };
 
 export default HomeScreen;

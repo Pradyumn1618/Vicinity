@@ -1,13 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "@react-native-firebase/firestore";
+import { getAuth } from '@react-native-firebase/auth';
+import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from '@react-native-firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from '@react-native-firebase/storage';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons  from  'react-native-vector-icons/Ionicons';
 import socket from '../config/socket';
 
-export default function ChatScreen({ chatId, receiver }: { chatId: string; receiver: string }) {
+import { RouteProp } from '@react-navigation/native';
+
+type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
+
+export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
+  const { chatId, receiver } = route.params;
   interface Message {
     id: string;
     text: string;

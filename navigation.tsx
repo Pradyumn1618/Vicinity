@@ -9,8 +9,10 @@ import SignupScreen from './screens/signup.tsx';
 import OnboardingScreen from './screens/onBoardingScreen.tsx';
 import ProfileScreen from './screens/ProfileScreen.tsx';
 import UpdateProfileScreen from './screens/UpdateProfileScreen.tsx';
-
-const Stack = createNativeStackNavigator();
+import ChatScreen from './screens/chatScreen.tsx';
+import InboxScreen from './screens/chatMainScreen.tsx';
+import { rootStackParamList } from './helper/types.tsx';
+const Stack = createNativeStackNavigator<rootStackParamList>();
 
 const Navigation = () => {
   return (
@@ -23,6 +25,8 @@ const Navigation = () => {
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="UpdateProfile" component={UpdateProfileScreen} />
+        <Stack.Screen name="ChatScreen" component={ChatScreen} />
+        <Stack.Screen name="Inbox" component={InboxScreen} />
         {/* Add more screens here */}
       </Stack.Navigator>
     </NavigationContainer>
