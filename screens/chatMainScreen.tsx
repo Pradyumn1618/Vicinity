@@ -2,25 +2,33 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, FlatList, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getFirestore, collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, getDocs,query,where,onSnapshot } from '@react-native-firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import Geohash from 'ngeohash';
+import { NavigationProp } from '@react-navigation/native';
+
+interface chatMainScreenProps {
+  navigation: NavigationProp<any>;
+}
+
+
 
 const db = getFirestore();
 const auth = getAuth();
 
-export default function InboxScreen() {
+export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const [tab, setTab] = useState('messages');
   const [onlineUsers, setOnlineUsers] = useState<{ id: string; photoURL?: string; username?: string }[]>([]);
   interface Message {
     id: string;
-    photoURL: string;
-    username: string;
     time: string;
     message: string;
+    participants: string[];
+    photoURL?: string;
+    username?: string;
   }
-
-  const [messages, setMessages] = useState<Message[]>([]); // Later populate this with Firestore chat history
+  
+  const [chats, setChats] = useState<Message[]>([]);
 
   useEffect(() => {
     const fetchNearbyOnlineUsers = async () => {
@@ -54,6 +62,59 @@ export default function InboxScreen() {
 
     fetchNearbyOnlineUsers();
   }, []);
+
+  
+  useEffect(() => {
+    const fetchChats = async () => {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+    
+      const chatsRef = collection(db, 'chats');
+      const chatsQuery = query(chatsRef, where('participants', 'array-contains', userId));
+    
+      const unsubscribe = onSnapshot(chatsQuery, async (snapshot) => {
+        const chatList = await Promise.all(
+          snapshot.docs.map(async (d) => {
+            const data = d.data();
+            const otherParticipant = getOtherParticipant(data.participants);
+    
+            // Fetch the profile picture of the other participant
+            let photoURL = null;
+            let username = null;
+            if (otherParticipant) {
+              const userRef = doc(db, 'users', otherParticipant);
+              const userSnap = await getDoc(userRef);
+              if (userSnap.exists) {
+                photoURL = userSnap.data()?.profilePic || null;
+                username = userSnap.data()?.username || null;
+              }
+            }
+    
+            return {
+              id: d.id,
+              time: data.time || new Date().toISOString(),
+              message: data.message || '',
+              participants: data.participants || [],
+              photoURL,
+              username,
+            };
+          })
+        );
+        setChats(chatList);
+      });
+    
+      return unsubscribe;
+    };
+
+    fetchChats();
+  }, []);
+
+  
+
+  const getOtherParticipant = (participants: string[]): string | undefined => {
+    const userId = auth.currentUser?.uid;
+    return participants.find((participant) => participant !== userId);
+  };
 
   return (
     <View className="flex-1 bg-black px-4 pt-6">
@@ -99,20 +160,28 @@ export default function InboxScreen() {
       </View>
 
       <FlatList
-        data={messages}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <View className="flex-row items-start p-4 bg-zinc-800 rounded-2xl mb-3">
-            <Image source={{ uri: item.photoURL }} className="w-12 h-12 rounded-full mr-3" />
-            <View className="flex-1">
-              <View className="flex-row justify-between">
+        data={chats}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => {
+          const otherParticipant = getOtherParticipant(item.participants);
+          return (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('ChatScreen', { chatId: item.id,receiver:otherParticipant })}
+              className="flex-row items-center p-4 bg-zinc-800 rounded-2xl mb-3"
+            >
+              <Image
+                source={{ uri: item.photoURL || 'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg' }}
+                className="w-12 h-12 rounded-full mr-3"
+              />
+
+              <View className="flex-1">
                 <Text className="text-white font-semibold">{item.username}</Text>
-                <Text className="text-gray-400 text-xs">{item.time}</Text>
+                <Text className="text-gray-400 text-sm mt-1">{item.message}</Text>
               </View>
-              <Text className="text-white mt-1">{item.message}</Text>
-            </View>
-          </View>
-        )}
+              <Text className="text-gray-400 text-xs">{new Date(item.time).toLocaleTimeString()}</Text>
+            </TouchableOpacity>
+          );
+        }}
       />
     </View>
   );

@@ -1,7 +1,7 @@
 // socket.ts
 import { io } from 'socket.io-client';
 
-const socket = io('https://your-server-url.com', {
+const socket = io('http://localhost:3000', {
   autoConnect: false,
   transports: ['websocket'],
 });

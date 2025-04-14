@@ -1,63 +1,163 @@
-import React, { useState, useRef } from 'react';
-
-// Define the Message type
-type Message = {
-  id: string;
-  text: string;
-  senderId: string;
-  timestamp: string;
-  replyTo?: string | null;
-};
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform} from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { getAuth } from 'firebase/auth';
+import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "@react-native-firebase/firestore";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from '@react-native-firebase/storage';
 import { Ionicons } from '@expo/vector-icons';
+import socket from '../config/socket';
 
-export default function ChatScreen() {
-  const [messages, setMessages] = useState([
-    { id: '1', text: 'Hey!', senderId: 'user1', timestamp: '10:00 AM' },
-    { id: '2', text: 'What’s up?', senderId: 'me', timestamp: '10:01 AM' },
-  ]);
+export default function ChatScreen({ chatId, receiver }: { chatId: string; receiver: string }) {
+  interface Message {
+    id: string;
+    text: string;
+    senderId: string;
+    timestamp: string;
+    media?: string | null;
+    replyTo?: { text: string; id: string } | null;
+  }
+
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  const [replyTo, setReplyTo] = useState<{ text: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ text: string; id: string } | null>(null);
+  const [media, setMedia] = useState<string | null>(null);
   const flatListRef = useRef<FlatList<any>>(null);
 
-  const currentUserId = 'me'; // Replace with auth().currentUser.uid
+  const auth = getAuth();
+  const currentUserId = auth.currentUser?.uid;
+  const db = getFirestore();
+  const storage = getStorage();
 
-  const handleSend = () => {
-    if (!inputText.trim()) return;
+  // Fetch messages from Firestore
+  useEffect(() => {
+    const messagesRef = collection(db, 'chats', chatId, 'messages');
+    const messagesQuery = query(messagesRef, orderBy('timestamp', 'asc'));
 
-    const newMessage = {
-      id: Date.now().toString(),
+    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+      const fetchedMessages: Message[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          text: data.text,
+          senderId: data.senderId,
+          timestamp: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          media: data.media || null,
+          replyTo: data.replyTo || null,
+        };
+      });
+      setMessages(fetchedMessages);
+    });
+
+    return () => unsubscribe(); // Cleanup listener on unmount
+  }, [chatId, db]);
+
+  const handleSend = async () => {
+    if (!inputText.trim() && !media) return; // Ensure either text or media is present
+    if (!currentUserId) return;
+
+    const newMessage: Message = {
+      id: chatId + Date.now().toString(),
       text: inputText,
       senderId: currentUserId,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      replyTo: replyTo?.text || null,
+      timestamp: new Date().toISOString(),
+      replyTo: replyTo || null,
+      media: media,
     };
 
-    setMessages(prev => [...prev, newMessage]);
+    // Add the message to Firestore
+    const messagesRef = collection(db, 'chats', chatId, 'messages');
+    await addDoc(messagesRef, {
+      text: newMessage.text,
+      senderId: newMessage.senderId,
+      timestamp: serverTimestamp(),
+      media: newMessage.media,
+      replyTo: replyTo?.id || null,
+    });
+
     setInputText('');
     setReplyTo(null);
+    setMedia(null); // Clear media after sending
 
     // Scroll to bottom after sending
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    socket.emit('send-dm', { id: chatId, receiver: receiver, message: newMessage });
   };
 
-const handleReply = (message: Message) => setReplyTo(message);
-const handleDelete = (messageId: string): void => {
+  const handleAttachMedia = async () => {
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'mixed', // Supports both images and videos
+        selectionLimit: 1,
+      });
+
+      if (result.didCancel || !result.assets || result.assets.length === 0) return;
+
+      const asset = result.assets[0];
+      const fileName = asset.fileName || `media_${Date.now()}`;
+      const uri = asset.uri;
+
+      if (!uri) return;
+
+      // Upload media to Firebase Storage
+      const storageRef = ref(storage, `chats/${chatId}/${fileName}`);
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const uploadTask = uploadBytesResumable(storageRef, blob);
+
+      uploadTask.on('state_changed', (snapshot) => {
+        console.log(`Progress: ${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}%`);
+      });
+
+      await uploadTask;
+
+      const downloadURL = await getDownloadURL(storageRef);
+      setMedia(downloadURL); // Set the media URL to include in the message
+      console.log('Media uploaded successfully:', downloadURL);
+    } catch (error) {
+      console.error('Error attaching media:', error);
+    }
+  };
+
+  const handleReply = (message: Message) => setReplyTo(message);
+
+  const handleDelete = (messageId: string): void => {
     setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
-};
+  };
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = item.senderId === currentUserId;
+
+    const handleScrollToReply = () => {
+      if (item.replyTo?.id) {
+        const targetIndex = messages.findIndex((msg) => msg.id === item.replyTo?.id);
+        if (targetIndex !== -1) {
+          try {
+            flatListRef.current?.scrollToIndex({ index: targetIndex, animated: true });
+          } catch (error) {
+            console.error('Error scrolling to message:', error);
+          }
+        }
+      }
+    };
+
     return (
       <View
-        className={`max-w-[80%] p-3 rounded-xl mb-2 ${
-          isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
-        }`}
+        className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
+          }`}
       >
         {item.replyTo && (
-          <View className="mb-1 border-l-2 border-white pl-2">
-            <Text className="text-white text-xs italic">Reply: {item.replyTo}</Text>
-          </View>
+          <TouchableOpacity onPress={handleScrollToReply}>
+            <View className="mb-1 border-l-2 border-white pl-2">
+              <Text className="text-white text-xs italic">Reply: {item.replyTo.text}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+        {item.media && (
+          <Image
+            source={{ uri: item.media }}
+            className="w-full h-40 rounded-lg mb-2"
+            resizeMode="cover"
+          />
         )}
         <Text className="text-white">{item.text}</Text>
         <View className="flex-row justify-between mt-1">
@@ -80,15 +180,21 @@ const handleDelete = (messageId: string): void => {
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-black"
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'android' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
       <FlatList
         ref={flatListRef}
         data={messages}
         renderItem={({ item }) => renderMessage({ item })}
-        keyExtractor={item => item.id}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
+        initialNumToRender={10} // Optimize for large lists
+        getItemLayout={(data, index) => ({
+          length: 80, // Approximate height of each message
+          offset: 80 * index,
+          index,
+        })}
       />
 
       {replyTo && (
@@ -101,7 +207,7 @@ const handleDelete = (messageId: string): void => {
       )}
 
       <View className="flex-row items-center px-4 py-3 bg-zinc-900 border-t border-zinc-700">
-        <TouchableOpacity className="mr-3">
+        <TouchableOpacity onPress={handleAttachMedia} className="mr-3">
           <Ionicons name="attach" size={24} color="white" />
         </TouchableOpacity>
         <TextInput
