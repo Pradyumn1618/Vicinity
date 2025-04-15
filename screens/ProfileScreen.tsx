@@ -51,6 +51,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
                 if (userDoc.exists) {
                     const userData = userDoc.data();
+                    console.log('User data:', userData);
                     setUserData(userData);
 
                     // Fetch posts created by the user

@@ -7,6 +7,8 @@ import firestore from '@react-native-firebase/firestore';
 import { getAuth } from '@react-native-firebase/auth';
 import Geohash from 'ngeohash';
 import { NavigationProp } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import Modal from 'react-native-modal';
 
 
 
@@ -25,6 +27,9 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const [onlineUsers, setOnlineUsers] = useState<{ id: string; photoURL?: string; username?: string }[]>([]);
   const [chats, setChats] = useState<Message[]>([]); // Direct messages
   const [groups, setGroups] = useState<Group[]>([]); // Groups
+  const [isModalVisible, setIsModalVisible] = useState(false); // Modal visibility
+  const [searchResults, setSearchResults] = useState<{ id: string; username: string; photoURL?: string }[]>([]); // Search results
+
 
   interface Message {
     id: string;
@@ -166,6 +171,45 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const getOtherParticipant = (participants: string[]): string | undefined => {
     const userId = auth.currentUser?.uid;
     return participants.find((participant) => participant !== userId);
+  };
+
+  const handleSearchUsers = async (queryText: string) => {
+    setSearchText(queryText);
+    if (queryText.trim() === '') {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('username', '>=', queryText), where('username', '<=', queryText + '\uf8ff'));
+      const snapshot = await getDocs(q);
+
+      const currentUserId = auth.currentUser?.uid; // Get the current user's ID
+
+      const results = snapshot.docs
+        .filter((doc) => doc.id !== currentUserId) // Exclude the current user's document
+        .map((doc) => ({
+          id: doc.id,
+          username: doc.data().username,
+          photoURL: doc.data().profilePic || 'https://via.placeholder.com/40',
+        }));
+
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error searching users:', error);
+    }
+  };
+
+  const generateChatId = (userId: string) => {
+    const currentUserId = auth.currentUser?.uid;
+    if (!currentUserId) return '';
+    return currentUserId > userId ? `chat_${userId}_${currentUserId}` : `chat_${currentUserId}_${userId}`;
+  }
+
+  const handleStartChat = (user: { id: string; username: string; photoURL?: string }) => {
+    setIsModalVisible(false);
+    navigation.navigate('ChatScreen', { chatId: generateChatId(user.id), receiver: user.id });
   };
 
   return (
@@ -317,6 +361,67 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
           )}
         />
       )}
+      <TouchableOpacity
+        onPress={() => setIsModalVisible(true)}
+        style={{
+          position: 'absolute',
+          bottom: 20,
+          right: 20,
+          backgroundColor: '#4F46E5',
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          justifyContent: 'center',
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.3,
+          shadowRadius: 4,
+          elevation: 5,
+        }}
+      >
+        <Ionicons name="add" size={28} color="white" />
+      </TouchableOpacity>
+
+      {/* Search Modal */}
+      <Modal isVisible={isModalVisible} onBackdropPress={() => setIsModalVisible(false)}>
+        <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 8 }}>
+          <TextInput
+            placeholder="Search users..."
+            value={searchText}
+            onChangeText={handleSearchUsers}
+            style={{
+              borderWidth: 1,
+              borderColor: '#ccc',
+              borderRadius: 8,
+              padding: 8,
+              marginBottom: 16,
+            }}
+          />
+          <FlatList
+            data={searchResults}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                onPress={() => handleStartChat(item)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#eee',
+                }}
+              >
+                <Image
+                  source={{ uri: item.photoURL }}
+                  style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
+                />
+                <Text>{item.username}</Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }

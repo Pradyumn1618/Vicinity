@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, TextInput, Button, Text, Platform } from "react-native";
 import auth from "@react-native-firebase/auth";
-import { getFirestore, collection, doc, setDoc, getDoc, GeoPoint } from "@react-native-firebase/firestore";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs,GeoPoint,query,where } from "@react-native-firebase/firestore";
 import messaging from "@react-native-firebase/messaging";
 import GetLocation from "react-native-get-location";
 import { NavigationProp, useFocusEffect } from "@react-navigation/native";
@@ -79,8 +79,9 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
     // ✅ Check if username is taken
     const isUsernameUnique = async (name: string) => {
         const usersRef = collection(db, "users");
-        const snapshot = await getDoc(doc(usersRef, name));
-        if (snapshot.exists) {
+        const q = query(usersRef, where("username", "==", name));
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
             console.log("Username already taken");
             setError("Username already taken.");
             return false;
