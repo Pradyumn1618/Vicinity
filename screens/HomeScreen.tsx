@@ -74,6 +74,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     try {
       await auth().signOut();
       mmkv.delete('user');
+      mmkv.delete('geohash');
       navigation.reset({
         index: 0,
         routes: [{ name: 'Login' }],
