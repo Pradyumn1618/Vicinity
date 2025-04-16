@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, TextInput, Button, Text, Platform } from "react-native";
+import { View, TextInput, Button, Text, Platform, Linking,Alert } from "react-native";
 import auth from "@react-native-firebase/auth";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs,GeoPoint,query,where } from "@react-native-firebase/firestore";
 import messaging from "@react-native-firebase/messaging";
@@ -8,6 +8,8 @@ import { NavigationProp, useFocusEffect } from "@react-navigation/native";
 import { PermissionsAndroid } from "react-native";
 import * as geofire from 'geofire-common';
 import mmkv from "../storage";
+import { openSettings } from 'react-native-permissions';
+
 
 // 🔒 Type for the navigation prop
 
@@ -147,6 +149,27 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             return true; // iOS handles permissions differently
         }
     };
+
+    const promptEnableGPS = async () => {
+        Alert.alert(
+            'Location Required',
+            'Please turn on location/GPS to get nearby features.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Open Settings',
+                    onPress: () => {
+                        if (Platform.OS === 'android') {
+                            Linking.openSettings();
+                        } else {
+                            openSettings(); // iOS
+                        }
+                    },
+                },
+            ],
+            { cancelable: true }
+        );
+    };
     const getLocation = async () => {
         const hasPermission = await requestLocationPermission();
 
@@ -164,8 +187,15 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
                     resolve({ coords: { latitude: position.latitude, longitude: position.longitude } });
                 })
                 .catch((err) => {
-                    console.warn(err.code, err.message);
-                    resolve(null); // Allow user to continue without location
+                    console.warn('Location error:', err);
+    
+                    if (err.code === 2) {
+                        // GPS off
+                        promptEnableGPS();
+                    }
+    
+                    // Still continue gracefully
+                    resolve(null);
                 });
         });
     };
@@ -178,8 +208,8 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
 
         if (position) {
             const { latitude, longitude } = position.coords;
-            userData.geohash = geofire.geohashForLocation([latitude, longitude]);
-            userData.location = new GeoPoint(latitude, longitude); // Optional
+            userData.geohash = geofire.geohashForLocation([latitude, longitude]).substring(0, 6);
+            userData.location = new GeoPoint(latitude, longitude);
             console.log("Location:", position.coords);
         }
 
