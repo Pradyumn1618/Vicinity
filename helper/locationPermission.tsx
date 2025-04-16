@@ -1,46 +1,15 @@
 // import { check, PERMISSIONS, RESULTS } from "react-native-permissions";
 // import { Alert, Linking } from "react-native";
 import { PermissionsAndroid, Platform } from "react-native";
+import Geolocation from '@react-native-community/geolocation';
+import Geohash from 'ngeohash';
+import mmkv from '../storage';
+import { collection, GeoPoint, getFirestore } from "@react-native-firebase/firestore";
+import { useSocket } from "./socketProvider";
 
-// const requestLocationPermission = async () => {
-//     const permissionStatus = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+const firestore = getFirestore();
 
-//     if (permissionStatus === RESULTS.GRANTED) {
-//         console.log("Permission already granted");
-//         return true;
-//     } else if (permissionStatus === RESULTS.DENIED) {
-//         try {
-//             const granted = await PermissionsAndroid.request(
-//                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-//                 {
-//                     title: "Location Permission",
-//                     message: "This app needs access to your location to show nearby posts.",
-//                     buttonNeutral: "Ask Me Later",
-//                     buttonNegative: "Deny",
-//                     buttonPositive: "Allow",
-//                 }
-//             );
-//             return granted === PermissionsAndroid.RESULTS.GRANTED;
-//         } catch (err) {
-//             console.warn(err);
-//             return false;
-//         }
-//     } else if (permissionStatus === RESULTS.BLOCKED) {
-//         console.log("Permission permanently denied. Ask user to enable manually.");
-//         Alert.alert(
-//             "Permission Required",
-//             "Location permission is required. Please enable it from settings.",
-//             [
-//                 { text: "Cancel", style: "cancel" },
-//                 { text: "Open Settings", onPress: () => Linking.openSettings() }
-//             ]
-//         );
-//         return false;
-//     }
-// };
-
-
-const requestLocationPermission = async (needsBackground = false) => {
+export const requestLocationPermission = async (needsBackground = false) => {
     if (Platform.OS === 'android') {
         try {
             // Request foreground permissions first
@@ -85,5 +54,51 @@ const requestLocationPermission = async (needsBackground = false) => {
     return true; // iOS handling
 };
 
-export default requestLocationPermission;
 
+export const startLocationTracking = (userId: string) => {
+    Geolocation.watchPosition(
+      async position => {
+        const { latitude, longitude } = position.coords;
+        const currentGeoHash = Geohash.encode(latitude, longitude, 7); // Adjust precision as needed
+  
+        const oldHash = mmkv.getString('geohash');
+  
+        if (currentGeoHash !== oldHash) {
+          mmkv.set('geohash', currentGeoHash);
+          console.log('Geohash updated:', currentGeoHash);
+          const socket = useSocket();
+          socket.emit('update_location', {
+            userId,
+            geohash: currentGeoHash,
+            oldHash,
+          });
+
+          // Firestore update
+          if (userId !== '') {
+            const userRef = collection(firestore, 'users').doc(userId);
+            await userRef.update({
+              geohash: currentGeoHash,
+              location: new GeoPoint(latitude, longitude),
+            })
+            .then(() => {
+              console.log('Location updated successfully');
+            })
+            .catch((error) => {
+              console.error('Error updating location:', error);
+            });
+          }
+  
+          // Notify page/component
+        }
+      },
+      error => {
+        console.log('Location error:', error);
+      },
+      {
+        enableHighAccuracy: true,
+        distanceFilter: 20, // Update only if user moves 20+ meters
+        interval: 10000, // Every 10 seconds
+        fastestInterval: 5000,
+      }
+    );
+  };

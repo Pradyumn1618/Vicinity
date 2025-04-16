@@ -4,6 +4,7 @@ import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import Geohash from 'ngeohash'; // if you need neighbors
 
+
 const useNearbyOnlineUsers = () => {
 
   interface OnlineUser {

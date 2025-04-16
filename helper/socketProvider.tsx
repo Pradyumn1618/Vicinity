@@ -4,10 +4,12 @@ import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import { AppState } from 'react-native';
 import socket from '../config/socket';
+import { createContext,useContext } from 'react';
+const SocketContext = createContext(socket);
 
-const SocketProvider = ({ children }: { children: React.ReactNode }) => {
+export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
-    let currentUserId: string | null = null;
+    // let currentUserId: string | null = null;
     let userGeohash: string | null = null;
 
     const connectWithGeo = async (userId: string) => {
@@ -20,7 +22,7 @@ const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         userGeohash = data.geohash;
-        currentUserId = userId;
+        // currentUserId = userId;
 
         socket.connect();
         socket.emit('user_online', {
@@ -38,7 +40,7 @@ const SocketProvider = ({ children }: { children: React.ReactNode }) => {
       if (user) {
         connectWithGeo(user.uid);
       } else {
-        currentUserId = null;
+        // currentUserId = null;
         userGeohash = null;
         socket.disconnect();
       }
@@ -66,7 +68,9 @@ const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  return <>{children}</>;
+  return <SocketContext.Provider value={socket}>
+  {children}
+</SocketContext.Provider>;
 };
 
-export default SocketProvider;
+export const useSocket = () => useContext(SocketContext);

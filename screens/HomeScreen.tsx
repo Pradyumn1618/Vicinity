@@ -1,16 +1,19 @@
 // filepath: /home/pradyumn/SWE/Vicinity/screens/HomeScreen.tsx
 import React, { useEffect } from 'react';
-import { View, Text, Button,Alert,TouchableOpacity} from 'react-native';
+import { View, Text, Button, Alert, TouchableOpacity } from 'react-native';
 import { NavigationProp, useFocusEffect } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import mmkv from '../storage';
-import requestLocationPermission from '../helper/locationPermission';
+// import {requestLocationPermission} from '../helper/locationPermission';
 import GetLocation from 'react-native-get-location';
 import * as geofire from 'geofire-common';
 import sendNotificationAsync from '../helper/sendNotification';
 import { getFirestore, doc, getDoc } from "@react-native-firebase/firestore";
 import messaging from '@react-native-firebase/messaging';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { requestLocationPermission, startLocationTracking } from '../helper/locationPermission';
+import RNAndroidLocationEnabler from 'react-native-android-location-enabler';
+import DeviceInfo from 'react-native-device-info';
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
@@ -22,27 +25,41 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   useEffect(() => {
     const checkPermission = async () => {
       const hasPermission = await requestLocationPermission(true);
-      
       if (hasPermission) {
-        // Get the current location
-        const location = await GetLocation.getCurrentPosition({
-          enableHighAccuracy: true,
-          timeout: 15000,
-        });
-        const geohash = geofire.geohashForLocation([location.latitude, location.longitude]);
-        if(mmkv.getString('geohash')?.substring(6) !== geohash.substring(6)) {
-          mmkv.set('geohash', geohash);
-          const user = auth().currentUser;
-          if (user) {
-            const db = getFirestore();
-            const userRef = doc(db, "users", user.uid);
-            await userRef.update({ geohash: geohash.substring(0, 6) });
-          }
+        // // Get the current location
+        // const location = await GetLocation.getCurrentPosition({
+        //   enableHighAccuracy: true,
+        //   timeout: 15000,
+        // });
+        // const geohash = geofire.geohashForLocation([location.latitude, location.longitude]);
+        // if(mmkv.getString('geohash')?.substring(6) !== geohash.substring(6)) {
+        //   mmkv.set('geohash', geohash);
+        //   const user = auth().currentUser;
+        //   if (user) {
+        //     const db = getFirestore();
+        //     const userRef = doc(db, "users", user.uid);
+        //     await userRef.update({ geohash: geohash.substring(0, 6) });
+        //   }
 
-        }
+        // }
+        startLocationTracking(auth().currentUser?.uid || '');
+        // const isLocationEnabled = await DeviceInfo.isLocationEnabled();
+        // console.log('Location services enabled:', isLocationEnabled);
+        // if (!isLocationEnabled) {
+        //   RNAndroidLocationEnabler.promptForEnableLocationIfNeeded({ interval: 10000 })
+        //     .then(data => {
+        //       console.log('Location services enabled:', data);
+        //       startLocationTracking(auth().currentUser?.uid || '');
+        //     }).catch(err => {
+        //       console.log('Location services not enabled:', err);
+        //     });
+        // } else {
+        //   console.log('Location services enabled:', isLocationEnabled);
+        //   startLocationTracking(auth().currentUser?.uid || '');
+        // }
       } else {
         Alert.alert(
-          "Permission Required",
+          "Permission Required for best experience",
           "Enable location in Settings > Apps > [Your App] > Permissions"
         );
       }
@@ -50,6 +67,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
     checkPermission();
   }, []);
+
   // Check authentication on initial mount
   const checkAuthentication = React.useCallback(() => {
     if (!mmkv.getString('user')) {
@@ -63,16 +81,13 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   useEffect(() => {
     checkAuthentication();
   }, [checkAuthentication]);
-  
   // Check authentication every time the screen gains focus
   useFocusEffect(
     React.useCallback(() => {
       checkAuthentication();
-      
     }, [checkAuthentication])
   );
-  
-  
+
   const handleLogout = async () => {
     try {
       await auth().signOut();
@@ -117,37 +132,37 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     } else {
       console.log("No such document!");
     }
-  }
-  
+  };
+
   return (
     <View className="flex-1 items-center justify-center bg-black">
-    <Text className="text-white text-xl">Home Screen</Text>
-    <Button title="Send Noti" onPress={() => sendNotification()} color="#4F46E5" /> {/* Optional custom color for visibility */}
-  
-    {/* Bottom Navigation Buttons */}
-    <View className="absolute bottom-5 left-5 right-5 flex-row justify-around bg-zinc-900 py-3 rounded-xl shadow-lg border border-zinc-800" >
-      <TouchableOpacity onPress={() => navigation.navigate('Details')} className="items-center">
-        <Ionicons name="information-circle-outline" size={24} color="white" />
-        <Text className="text-white text-xs mt-1">Details</Text>
-      </TouchableOpacity>
-  
-      <TouchableOpacity onPress={() => navigation.navigate('Profile')} className="items-center">
-        <Ionicons name="person-outline" size={24} color="white" />
-        <Text className="text-white text-xs mt-1">Profile</Text>
-      </TouchableOpacity>
-  
-      <TouchableOpacity onPress={() => navigation.navigate('Inbox')} className="items-center">
-        <Ionicons name="chatbubble-outline" size={24} color="white" />
-        <Text className="text-white text-xs mt-1">Chat</Text>
-      </TouchableOpacity>
-  
-      <TouchableOpacity onPress={handleLogout} className="items-center">
-        <Ionicons name="log-out-outline" size={24} color="white" />
-        <Text className="text-white text-xs mt-1">Logout</Text>
-      </TouchableOpacity>
+      <Text className="text-white text-xl">Home Screen</Text>
+      <Button title="Send Noti" onPress={() => sendNotification()} color="#4F46E5" /> {/* Optional custom color for visibility */}
+
+      {/* Bottom Navigation Buttons */}
+      <View className="absolute bottom-5 left-5 right-5 flex-row justify-around bg-zinc-900 py-3 rounded-xl shadow-lg border border-zinc-800" >
+        <TouchableOpacity onPress={() => navigation.navigate('Details')} className="items-center">
+          <Ionicons name="information-circle-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Details</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => navigation.navigate('Profile')} className="items-center">
+          <Ionicons name="person-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Profile</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => navigation.navigate('Inbox')} className="items-center">
+          <Ionicons name="chatbubble-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Chat</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={handleLogout} className="items-center">
+          <Ionicons name="log-out-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Logout</Text>
+        </TouchableOpacity>
+      </View>
     </View>
-  </View>
-  );  
+  );
 };
 
 export default HomeScreen;

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform,Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform,Alert,StyleSheet, Image } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
 import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc,getDoc,deleteDoc } from '@react-native-firebase/firestore';
@@ -11,6 +11,8 @@ import FastImage from 'react-native-fast-image'; // For better image and GIF sup
 
 import { RouteProp } from '@react-navigation/native';
 import { Modal } from 'react-native';
+import { sendDMNotification } from '../helper/sendNotification';
+import useReceiverStatus from '../helper/receiverStatus';
 // import MediaTest from './test';
 
 type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
@@ -38,6 +40,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [attachedMedia,setAttachedMedia] = useState<{uri:string,filename:string,type:string}|null>(null);
   const [pressedFileExt, setPressedFileExt] = useState<string | null>(null);
+  const [receiverDetails, setReceiverDetails] = useState<any>(null);
   // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   // const [initialScrollDone, setInitialScrollDone] = useState(false);
 
@@ -57,7 +60,58 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const db = getFirestore();
   const storage = getStorage();
 
-
+  // useEffect(() => {
+  //   if (!receiver) return;
+  
+  //   let interval: any;
+  //   let isMounted = true;
+  
+  //   const fetchReceiverDetails = async () => {
+  //     try {
+  //       const userRef = doc(db, 'users', receiver);
+  //       const userDoc = await getDoc(userRef);
+  
+  //       if (userDoc.exists && isMounted) {
+  //         setReceiverDetails((prevDetails: any) => ({
+  //           ...prevDetails,
+  //           ...userDoc.data(),
+  //         }));
+  
+  //         if (!socket.connected) {
+  //           socket.connect();
+  //         }
+  
+  //         interval = setInterval(() => {
+  //           socket.emit('get_status', { userId: receiver });
+  //         }, 5000);
+  
+  //         const handleStatusResponse = (data: { status: string; lastSeen: string }) => {
+  //           setReceiverDetails((prevDetails: any) => ({
+  //             ...prevDetails,
+  //             ...(data.status === 'online'
+  //               ? { status: data.status }
+  //               : { lastSeen: data.lastSeen, status: null }),
+  //           }));
+  //         };
+  
+  //         socket.on('status_response', handleStatusResponse);
+  //       } else {
+  //         console.log('No such document!');
+  //       }
+  //     } catch (error) {
+  //       console.error('Error fetching receiver details:', error);
+  //     }
+  //   };
+  
+  //   fetchReceiverDetails();
+  
+  //   return () => {
+  //     isMounted = false;
+  //     clearInterval(interval);
+  //     socket.off('status_response');
+  //   };
+  // }, [receiver, db]);
+  useReceiverStatus(receiver, setReceiverDetails);
 
   // Fetch messages from Firestore
   useEffect(() => {
@@ -159,6 +213,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     setUploadProgress(0);
     // Scroll to bottom after sending
     // scrollToBottom();
+    sendDMNotification([receiverDetails?.fcmToken], receiverDetails?.username, newMessage.text,chatId,receiver);
     socket.emit('send-dm', { id: chatId, receiver: receiver, message: newMessage });
   };
 
@@ -365,6 +420,17 @@ const confirmDelete = async (messageId: string): Promise<void> => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
+    {receiverDetails &&
+    <View style={styles.statusBar}>
+        <Image source={{ uri: receiverDetails.profilePic }} style={styles.profilePic} />
+        <View style={styles.userInfo}>
+          <Text style={styles.username}>{receiverDetails.username}</Text>
+          {receiverDetails.status&&<Text style={styles.status}>{receiverDetails.status}</Text>}
+          {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
+        </View>
+      </View>
+}
+      
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -488,3 +554,31 @@ const confirmDelete = async (messageId: string): Promise<void> => {
     </KeyboardAvoidingView>
   );
 }
+const styles = StyleSheet.create({
+  statusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#1a1a1a',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  profilePic: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  userInfo: {
+    flex: 1,
+  },
+  username: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  status: {
+    color: 'green', // Change to red or gray for offline
+    fontSize: 12,
+  },
+});

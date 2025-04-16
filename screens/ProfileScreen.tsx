@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, Image, FlatList, ActivityIndicator, Button } from 'react-native';
 import { getFirestore, collection, doc, getDoc, getDocs, query, where } from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
@@ -41,40 +41,42 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       );
       
 
-    useEffect(() => {
-        if (!currentUser) return;
-
-        const fetchProfileData = async () => {
+      useFocusEffect(
+        useCallback(() => {
+          if (!currentUser) return;
+      
+          const fetchProfileData = async () => {
             try {
-                const userRef = doc(db, 'users', currentUser.uid);
-                const userDoc = await getDoc(userRef);
-
-                if (userDoc.exists) {
-                    const userData = userDoc.data();
-                    console.log('User data:', userData);
-                    setUserData(userData);
-
-                    // Fetch posts created by the user
-                    const postsQuery = query(collection(db, "posts"), where("userId", "==", currentUser.uid));
-                    const postDocs = await getDocs(postsQuery);
-                    setPosts(postDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-                    // Fetch events created by the user
-                    const eventsQuery = query(collection(db, "events"), where("userId", "==", currentUser.uid));
-                    const eventDocs = await getDocs(eventsQuery);
-                    setEvents(eventDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                } else {
-                    console.log('No such document!');
-                }
+              const userRef = doc(db, 'users', currentUser.uid);
+              const userDoc = await getDoc(userRef);
+      
+              if (userDoc.exists) {
+                const user = userDoc.data();
+                console.log('User data:', user);
+                setUserData(user);
+      
+                // Fetch posts created by the user
+                const postsQuery = query(collection(db, "posts"), where("userId", "==", currentUser.uid));
+                const postDocs = await getDocs(postsQuery);
+                setPosts(postDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      
+                // Fetch events created by the user
+                const eventsQuery = query(collection(db, "events"), where("userId", "==", currentUser.uid));
+                const eventDocs = await getDocs(eventsQuery);
+                setEvents(eventDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+              } else {
+                console.log('No such document!');
+              }
             } catch (error) {
-                console.error('Error fetching profile data:', error);
+              console.error('Error fetching profile data:', error);
             } finally {
-                setLoading(false);
+              setLoading(false);
             }
-        };
-
-        fetchProfileData();
-    }, []);
+          };
+      
+          fetchProfileData();
+        }, [])
+      );
 
     if (loading) {
         return <ActivityIndicator size="large" color="#0000ff" style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} />;

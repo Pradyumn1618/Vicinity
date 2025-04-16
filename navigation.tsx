@@ -1,6 +1,5 @@
 // filepath: /home/pradyumn/SWE/Vicinity/Navigation.tsx
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './screens/HomeScreen.tsx';
 import DetailsScreen from './screens/DetailsScreen.tsx';
@@ -12,11 +11,16 @@ import UpdateProfileScreen from './screens/UpdateProfileScreen.tsx';
 import ChatScreen from './screens/chatScreen.tsx';
 import InboxScreen from './screens/chatMainScreen.tsx';
 import { rootStackParamList } from './helper/types.tsx';
+
+
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
 const Navigation = () => {
+
+  
+
   return (
-    <NavigationContainer>
+    // <NavigationContainer>
       <Stack.Navigator initialRouteName="Home" screenOptions={{ headerBackVisible: false, headerShown: false }}>
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Details" component={DetailsScreen} />
@@ -29,7 +33,7 @@ const Navigation = () => {
         <Stack.Screen name="Inbox" component={InboxScreen} />
         {/* Add more screens here */}
       </Stack.Navigator>
-    </NavigationContainer>
+    // </NavigationContainer>
   );
 };
 
