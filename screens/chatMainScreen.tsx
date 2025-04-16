@@ -5,10 +5,13 @@ import { View, Text, ScrollView, TextInput, TouchableOpacity, FlatList, Image } 
 import { getFirestore, collection, doc, getDoc, getDocs, query, where, onSnapshot } from '@react-native-firebase/firestore';
 import firestore from '@react-native-firebase/firestore';
 import { getAuth } from '@react-native-firebase/auth';
-import Geohash from 'ngeohash';
+// import Geohash from 'ngeohash';
 import { NavigationProp } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Modal from 'react-native-modal';
+// import { getDatabase, ref, onValue } from '@react-native-firebase/database';
+import useNearbyOnlineUsers from '../helper/onlineUsers';
+
 
 
 
@@ -24,7 +27,7 @@ const auth = getAuth();
 export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const [tab, setTab] = useState('messages'); // Active tab
   const [searchText, setSearchText] = useState(''); // Search input text
-  const [onlineUsers, setOnlineUsers] = useState<{ id: string; photoURL?: string; username?: string }[]>([]);
+  const onlineUsers = useNearbyOnlineUsers(); // Online users
   const [chats, setChats] = useState<Message[]>([]); // Direct messages
   const [groups, setGroups] = useState<Group[]>([]); // Groups
   const [isModalVisible, setIsModalVisible] = useState(false); // Modal visibility
@@ -48,40 +51,6 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
     time: string;
     lastSender?: string;
   }
-
-  useEffect(() => {
-    // Fetch nearby online users
-    const fetchNearbyOnlineUsers = async () => {
-      try {
-        const userId = auth.currentUser?.uid;
-        if (!userId) return;
-
-        const userSnap = await getDoc(doc(db, 'users', userId));
-        const userData = userSnap.data();
-        if (!userData || !userData.geohash) {
-          console.error('❌ User data or geohash is missing');
-          return;
-        }
-        const { geohash: currentGeohash } = userData;
-
-        const neighbors = Geohash.neighbors(currentGeohash);
-        const hashesToQuery = [currentGeohash, ...neighbors];
-
-        const userFetchPromises = hashesToQuery.map(async (hash) => {
-          const bucketRef = collection(db, 'geoBuckets', hash, 'onlineUsers');
-          const snapshot = await getDocs(bucketRef);
-          return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        });
-
-        const nearbyUsers = (await Promise.all(userFetchPromises)).flat();
-        setOnlineUsers(nearbyUsers);
-      } catch (error) {
-        console.error('❌ Error fetching online users:', error);
-      }
-    };
-
-    fetchNearbyOnlineUsers();
-  }, []);
 
   useEffect(() => {
     // Fetch direct messages
@@ -241,10 +210,10 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
           }}
         >
           {onlineUsers.map((user) => (
-            <View key={user.id} style={{ alignItems: 'center', marginRight: 12 }}>
+            <View key={user.userId} style={{ alignItems: 'center', marginRight: 12 }}>
               <View style={{ position: 'relative' }}>
                 <Image
-                  source={{ uri: user.photoURL || 'https://via.placeholder.com/40' }}
+                  source={{ uri: user.profilePic || 'https://via.placeholder.com/40' }}
                   style={{
                     width: 52,
                     height: 52,

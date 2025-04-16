@@ -12,15 +12,11 @@ import { getFirestore, doc, getDoc } from "@react-native-firebase/firestore";
 import messaging from '@react-native-firebase/messaging';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-
-
-
-
-
-
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
 }
+// const user = mmkv.getString('user');
+// const userData = user ? JSON.parse(user) : null;;
 
 const HomeScreen = ({ navigation }: HomeScreenProps) => {
   useEffect(() => {
@@ -34,8 +30,15 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
           timeout: 15000,
         });
         const geohash = geofire.geohashForLocation([location.latitude, location.longitude]);
-        if(mmkv.getString('geohash')?.substring(5) !== geohash.substring(5)) {
+        if(mmkv.getString('geohash')?.substring(6) !== geohash.substring(6)) {
           mmkv.set('geohash', geohash);
+          const user = auth().currentUser;
+          if (user) {
+            const db = getFirestore();
+            const userRef = doc(db, "users", user.uid);
+            await userRef.update({ geohash: geohash.substring(0, 6) });
+          }
+
         }
       } else {
         Alert.alert(
