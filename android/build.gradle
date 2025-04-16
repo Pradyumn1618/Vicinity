@@ -6,10 +6,13 @@ buildscript {
         targetSdkVersion = 34
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.0.21"
+        googlePlayServicesVersion = "21.0.1"
     }
     repositories {
         google()
         mavenCentral()
+        maven { url "https://maven.transistorsoft.com/release" }
+
     }
     dependencies {
         classpath("com.android.tools.build:gradle")

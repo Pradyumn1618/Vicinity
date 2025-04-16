@@ -21,4 +21,24 @@ const sendNotificationAsync = async (fcmTokens: string[]) => {
     }
   };
 
+export const sendDMNotification = async (fcmTokens: string[], senderName: string, message: string,chatId:string,receiver:string) => {
+    if (fcmTokens.length === 0) return;
+  
+    try {
+      const res = await sendNotification({
+        token: fcmTokens, // pass array
+        title: `${senderName} sent you a message`,
+        body: message,
+        data: {
+          purpose: 'dm',
+          customKey: chatId,
+          receiver: receiver,
+        }
+      });
+      console.log("Notification sent:", res.data);
+    } catch (err) {
+      console.error("Error sending notification:", err);
+    }
+  }
+
 export default sendNotificationAsync;

@@ -124,11 +124,39 @@ import Navigation from './navigation';
 import { useEffect } from 'react';
 import { Alert } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
-import SocketProvider from './helper/socketProvider';
+import {SocketProvider} from './helper/socketProvider';
+import auth from '@react-native-firebase/auth';
+import { useNavigationContainerRef,NavigationContainer } from '@react-navigation/native';
+import { rootStackParamList } from './helper/types';
 
 
 const App = () => {
+  const navigationRef = useNavigationContainerRef<rootStackParamList>(); // Create a typed navigation ref
+  // const navigationRef = useNavigationContainerRef(); // Create a navigation ref
+
   useEffect(() => {
+    // Handle notifications when the app is opened from the background
+    const unsubscribe = messaging().onNotificationOpenedApp(remoteMessage => {
+      console.log('Notification caused app to open from background state:', remoteMessage.notification);
+      if (remoteMessage.notification) {
+        const purpose = remoteMessage.data?.purpose;
+        if (purpose === 'dm' && remoteMessage.data) {
+          const chatId = remoteMessage.data.customKey ?? '';
+          const receiver = remoteMessage.data.receiver ?? '';
+          const user = auth().currentUser;
+          if (user) {
+            // Navigate to ChatScreen
+            navigationRef.navigate('ChatScreen', { chatId, receiver });
+          }
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [navigationRef]);
+
+  useEffect(() => {
+    // Handle notifications when the app is in the foreground
     const unsubscribe = messaging().onMessage(async remoteMessage => {
       console.log('📩 Received in foreground:', remoteMessage);
       if (remoteMessage.notification) {
@@ -141,9 +169,12 @@ const App = () => {
     return unsubscribe;
   }, []);
   return (
+    <NavigationContainer ref={navigationRef}>
     <SocketProvider>
       <Navigation />
-    </SocketProvider>)
+    </SocketProvider>
+    </NavigationContainer>
+    )
 };
 
 export default App;
