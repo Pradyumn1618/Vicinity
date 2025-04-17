@@ -1,4 +1,5 @@
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { getFirestore,doc, getDoc } from '@react-native-firebase/firestore';
 
 const functions = getFunctions();
 const sendNotification = httpsCallable(functions, "sendNotification");
@@ -21,9 +22,17 @@ const sendNotificationAsync = async (fcmTokens: string[]) => {
     }
   };
 
-export const sendDMNotification = async (fcmTokens: string[], senderName: string, message: string,chatId:string,receiver:string) => {
+export const sendDMNotification = async (fcmTokens: string[], senderId: string, message: string,chatId:string) => {
     if (fcmTokens.length === 0) return;
-  
+    const db = getFirestore();
+    const senderRef = doc(db,'users',senderId);
+    const senderSnap = await getDoc(senderRef);
+    const senderName = senderSnap.data()?.username;
+    if (!senderName) {
+      console.error("Sender name not found");
+      return;
+    }
+
     try {
       const res = await sendNotification({
         token: fcmTokens, // pass array
@@ -32,7 +41,7 @@ export const sendDMNotification = async (fcmTokens: string[], senderName: string
         data: {
           purpose: 'dm',
           customKey: chatId,
-          receiver: receiver,
+          sender: senderId,
         }
       });
       console.log("Notification sent:", res.data);

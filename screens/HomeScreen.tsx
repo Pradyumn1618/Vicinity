@@ -1,19 +1,18 @@
 // filepath: /home/pradyumn/SWE/Vicinity/screens/HomeScreen.tsx
 import React, { useEffect } from 'react';
-import { View, Text, Button, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, Button, Alert, TouchableOpacity, Platform } from 'react-native';
 import { NavigationProp, useFocusEffect } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import mmkv from '../storage';
 // import {requestLocationPermission} from '../helper/locationPermission';
-import GetLocation from 'react-native-get-location';
-import * as geofire from 'geofire-common';
+// import GetLocation from 'react-native-get-location';
+// import * as geofire from 'geofire-common';
 import sendNotificationAsync from '../helper/sendNotification';
 import { getFirestore, doc, getDoc } from "@react-native-firebase/firestore";
 import messaging from '@react-native-firebase/messaging';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { requestLocationPermission, startLocationTracking } from '../helper/locationPermission';
-import RNAndroidLocationEnabler from 'react-native-android-location-enabler';
-import DeviceInfo from 'react-native-device-info';
+import { requestLocationPermission, startLocationTracking,requestNotificationPermission } from '../helper/locationPermission';
+import { promptForEnableLocationIfNeeded } from 'react-native-android-location-enabler';
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
@@ -23,44 +22,34 @@ interface HomeScreenProps {
 
 const HomeScreen = ({ navigation }: HomeScreenProps) => {
   useEffect(() => {
+    const user = auth().currentUser;
+    if (user) {
+      requestNotificationPermission();
+    }
+  }, []);
+  useEffect(() => {
+    const user = auth().currentUser;
+    if (!user) {
+      return;
+    }
     const checkPermission = async () => {
       const hasPermission = await requestLocationPermission(true);
       if (hasPermission) {
-        // // Get the current location
-        // const location = await GetLocation.getCurrentPosition({
-        //   enableHighAccuracy: true,
-        //   timeout: 15000,
-        // });
-        // const geohash = geofire.geohashForLocation([location.latitude, location.longitude]);
-        // if(mmkv.getString('geohash')?.substring(6) !== geohash.substring(6)) {
-        //   mmkv.set('geohash', geohash);
-        //   const user = auth().currentUser;
-        //   if (user) {
-        //     const db = getFirestore();
-        //     const userRef = doc(db, "users", user.uid);
-        //     await userRef.update({ geohash: geohash.substring(0, 6) });
-        //   }
-
-        // }
-        startLocationTracking(auth().currentUser?.uid || '');
-        // const isLocationEnabled = await DeviceInfo.isLocationEnabled();
-        // console.log('Location services enabled:', isLocationEnabled);
-        // if (!isLocationEnabled) {
-        //   RNAndroidLocationEnabler.promptForEnableLocationIfNeeded({ interval: 10000 })
-        //     .then(data => {
-        //       console.log('Location services enabled:', data);
-        //       startLocationTracking(auth().currentUser?.uid || '');
-        //     }).catch(err => {
-        //       console.log('Location services not enabled:', err);
-        //     });
-        // } else {
-        //   console.log('Location services enabled:', isLocationEnabled);
-        //   startLocationTracking(auth().currentUser?.uid || '');
-        // }
+        if (Platform.OS === 'android') {
+          try {
+            const enableResult = await promptForEnableLocationIfNeeded();
+            console.log('enableResult', enableResult);
+            startLocationTracking(auth().currentUser?.uid || '');
+          } catch (error: unknown) {
+            if (error instanceof Error) {
+              console.error(error.message);
+            }
+          }
+        }
       } else {
         Alert.alert(
           "Permission Required for best experience",
-          "Enable location in Settings > Apps > [Your App] > Permissions"
+          "Enable location in Settings > Apps > Vicinity > Permissions"
         );
       }
     };

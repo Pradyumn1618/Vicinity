@@ -119,20 +119,40 @@
 
 import './global.css';
 // filepath: /home/pradyumn/SWE/Vicinity/App.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import Navigation from './navigation';
 import { useEffect } from 'react';
 import { Alert } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
-import {SocketProvider} from './helper/socketProvider';
+import { SocketProvider } from './helper/socketProvider';
 import auth from '@react-native-firebase/auth';
-import { useNavigationContainerRef,NavigationContainer } from '@react-navigation/native';
+import { useNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
 import { rootStackParamList } from './helper/types';
+import InAppNotification from './components/inAppNotification';
+import { getDBConnection, createTables } from './config/database';
 
 
 const App = () => {
   const navigationRef = useNavigationContainerRef<rootStackParamList>(); // Create a typed navigation ref
+  interface NotificationData {
+    title: string;
+    body: string;
+    chatId?: string;
+    sender?: string;
+  }
+
+  const [notificationData, setNotificationData] = useState<NotificationData | null>(null);
   // const navigationRef = useNavigationContainerRef(); // Create a navigation ref
+
+  useEffect(() => {
+    const setupDatabase = async () => {
+      const db = await getDBConnection();
+      await createTables(db);
+    };
+  
+    setupDatabase();
+  }, []);
+  
 
   useEffect(() => {
     // Handle notifications when the app is opened from the background
@@ -142,11 +162,11 @@ const App = () => {
         const purpose = remoteMessage.data?.purpose;
         if (purpose === 'dm' && remoteMessage.data) {
           const chatId = remoteMessage.data.customKey ?? '';
-          const receiver = remoteMessage.data.receiver ?? '';
+          const sender = remoteMessage.data.sender ?? '';
           const user = auth().currentUser;
           if (user) {
             // Navigate to ChatScreen
-            navigationRef.navigate('ChatScreen', { chatId, receiver });
+            navigationRef.navigate('ChatScreen', { chatId, sender });
           }
         }
       }
@@ -160,21 +180,51 @@ const App = () => {
     const unsubscribe = messaging().onMessage(async remoteMessage => {
       console.log('📩 Received in foreground:', remoteMessage);
       if (remoteMessage.notification) {
-        const title = remoteMessage.notification.title || 'Notification';
-        const body = remoteMessage.notification.body || 'You have a new message.';
-        Alert.alert(title, body);
+        const purpose = remoteMessage.data?.purpose;
+        if (purpose === 'dm' && remoteMessage.data) {
+          setNotificationData({
+            title: remoteMessage.notification.title ?? 'No Title',
+            body: remoteMessage.notification.body ?? 'No Body',
+            chatId: remoteMessage.data.customKey ?? '',
+            sender: remoteMessage.data.sender ?? '',
+          });
+        } else {
+          const title = remoteMessage.notification.title || 'Notification';
+          const body = remoteMessage.notification.body || 'You have a new message.';
+          Alert.alert(title, body);
+        }
       }
     });
 
     return unsubscribe;
-  }, []);
+  }, [navigationRef]);
+
+  const handleNotificationPress = () => {
+    if (notificationData?.chatId && notificationData?.sender) {
+      navigationRef.navigate('ChatScreen', {
+        chatId: notificationData.chatId,
+        receiver: notificationData.sender,
+      });
+    }
+    setNotificationData(null);
+  };
   return (
-    <NavigationContainer ref={navigationRef}>
-    <SocketProvider>
-      <Navigation />
-    </SocketProvider>
-    </NavigationContainer>
-    )
+    <>
+      {notificationData && (
+        <InAppNotification
+          title={notificationData.title}
+          body={notificationData.body}
+          onPress={handleNotificationPress}
+          onClose={() => setNotificationData(null)}
+        />
+      )}
+      <NavigationContainer ref={navigationRef}>
+        <SocketProvider>
+          <Navigation />
+        </SocketProvider>
+      </NavigationContainer>
+    </>
+  )
 };
 
 export default App;

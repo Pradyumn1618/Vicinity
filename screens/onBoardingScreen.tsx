@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { View, TextInput, Button, Text, Platform, Linking,Alert } from "react-native";
+import { View, TextInput, Button, Text} from "react-native";
 import auth from "@react-native-firebase/auth";
-import { getFirestore, collection, doc, setDoc, getDoc, getDocs,GeoPoint,query,where } from "@react-native-firebase/firestore";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs,query,where } from "@react-native-firebase/firestore";
 import messaging from "@react-native-firebase/messaging";
-import GetLocation from "react-native-get-location";
+// import GetLocation from "react-native-get-location";
 import { NavigationProp, useFocusEffect } from "@react-navigation/native";
-import { PermissionsAndroid } from "react-native";
-import * as geofire from 'geofire-common';
+// import { PermissionsAndroid } from "react-native";
+// import * as geofire from 'geofire-common';
 import mmkv from "../storage";
-import { openSettings } from 'react-native-permissions';
+// import { openSettings } from 'react-native-permissions';
 
 
 // 🔒 Type for the navigation prop
@@ -116,108 +116,108 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
     //     }
     // };
 
-    const requestLocationPermission = async () => {
-        if (Platform.OS === 'android') {
-            const fineLocation = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,{
-                    title: "Location Permission",
-                    message: "This app needs access to your location to show nearby posts.",
-                    buttonNeutral: "Ask Me Later",
-                    buttonNegative: "Deny",
-                    buttonPositive: "Allow",
-                }
-            );
+    // const requestLocationPermission = async () => {
+    //     if (Platform.OS === 'android') {
+    //         const fineLocation = await PermissionsAndroid.request(
+    //             PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,{
+    //                 title: "Location Permission",
+    //                 message: "This app needs access to your location to show nearby posts.",
+    //                 buttonNeutral: "Ask Me Later",
+    //                 buttonNegative: "Deny",
+    //                 buttonPositive: "Allow",
+    //             }
+    //         );
     
-            const coarseLocation = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,{
-                    title: "Location Permission",
-                    message: "This app needs access to your location to show nearby posts.",
-                    buttonNeutral: "Ask Me Later",
-                    buttonNegative: "Deny",
-                    buttonPositive: "Allow",
-                }
-            );
+    //         const coarseLocation = await PermissionsAndroid.request(
+    //             PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,{
+    //                 title: "Location Permission",
+    //                 message: "This app needs access to your location to show nearby posts.",
+    //                 buttonNeutral: "Ask Me Later",
+    //                 buttonNegative: "Deny",
+    //                 buttonPositive: "Allow",
+    //             }
+    //         );
     
-            if (fineLocation === PermissionsAndroid.RESULTS.GRANTED || coarseLocation === PermissionsAndroid.RESULTS.GRANTED) {
-                console.log("✅ Location permission granted");
-                return true;
-            } else {
-                console.log("❌ Location permission denied");
-                return false;
-            }
-        } else {
-            return true; // iOS handles permissions differently
-        }
-    };
+    //         if (fineLocation === PermissionsAndroid.RESULTS.GRANTED || coarseLocation === PermissionsAndroid.RESULTS.GRANTED) {
+    //             console.log("✅ Location permission granted");
+    //             return true;
+    //         } else {
+    //             console.log("❌ Location permission denied");
+    //             return false;
+    //         }
+    //     } else {
+    //         return true; // iOS handles permissions differently
+    //     }
+    // };
 
-    const promptEnableGPS = async () => {
-        Alert.alert(
-            'Location Required',
-            'Please turn on location/GPS to get nearby features.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Open Settings',
-                    onPress: () => {
-                        if (Platform.OS === 'android') {
-                            Linking.openSettings();
-                        } else {
-                            openSettings(); // iOS
-                        }
-                    },
-                },
-            ],
-            { cancelable: true }
-        );
-    };
-    const getLocation = async () => {
-        const hasPermission = await requestLocationPermission();
+    // const promptEnableGPS = async () => {
+    //     Alert.alert(
+    //         'Location Required',
+    //         'Please turn on location/GPS to get nearby features.',
+    //         [
+    //             { text: 'Cancel', style: 'cancel' },
+    //             {
+    //                 text: 'Open Settings',
+    //                 onPress: () => {
+    //                     if (Platform.OS === 'android') {
+    //                         Linking.openSettings();
+    //                     } else {
+    //                         openSettings(); // iOS
+    //                     }
+    //                 },
+    //             },
+    //         ],
+    //         { cancelable: true }
+    //     );
+    // };
+    // const getLocation = async () => {
+    //     const hasPermission = await requestLocationPermission();
 
-        if (!hasPermission) {
-            console.log("Location permission denied. Continuing without location.");
-            return null; // Allow user to continue without location
-        }
+    //     if (!hasPermission) {
+    //         console.log("Location permission denied. Continuing without location.");
+    //         return null; // Allow user to continue without location
+    //     }
 
-        return new Promise<{ coords: { latitude: number; longitude: number } } | null>((resolve) => {
-            GetLocation.getCurrentPosition({
-                enableHighAccuracy: true,
-                timeout: 15000,
-            })
-                .then((position) => {
-                    resolve({ coords: { latitude: position.latitude, longitude: position.longitude } });
-                })
-                .catch((err) => {
-                    console.warn('Location error:', err);
+    //     return new Promise<{ coords: { latitude: number; longitude: number } } | null>((resolve) => {
+    //         GetLocation.getCurrentPosition({
+    //             enableHighAccuracy: true,
+    //             timeout: 15000,
+    //         })
+    //             .then((position) => {
+    //                 resolve({ coords: { latitude: position.latitude, longitude: position.longitude } });
+    //             })
+    //             .catch((err) => {
+    //                 console.warn('Location error:', err);
     
-                    if (err.code === 2) {
-                        // GPS off
-                        promptEnableGPS();
-                    }
+    //                 if (err.code === 2) {
+    //                     // GPS off
+    //                     promptEnableGPS();
+    //                 }
     
-                    // Still continue gracefully
-                    resolve(null);
-                });
-        });
-    };
+    //                 // Still continue gracefully
+    //                 resolve(null);
+    //             });
+    //     });
+    // };
 
 
 
     const saveUserDataWithGeohash = async (userId: string, username: string, fcmToken: string) => {
-        const position = await getLocation();
+        // const position = await getLocation();
         let userData: any = { username, fcmToken }; // Start with required fields
 
-        if (position) {
-            const { latitude, longitude } = position.coords;
-            userData.geohash = geofire.geohashForLocation([latitude, longitude]).substring(0, 6);
-            userData.location = new GeoPoint(latitude, longitude);
-            console.log("Location:", position.coords);
-        }
+        // if (position) {
+        //     const { latitude, longitude } = position.coords;
+        //     userData.geohash = geofire.geohashForLocation([latitude, longitude]).substring(0, 6);
+        //     userData.location = new GeoPoint(latitude, longitude);
+        //     console.log("Location:", position.coords);
+        // }
 
         const userRef = doc(db, "users", userId);
         await setDoc(userRef, userData, { merge: true });
         console.log("User data saved with geohash:", userData);
 
-        mmkv.set("geohash", userData.geohash);
+        // mmkv.set("geohash", userData.geohash);
     }
 
 
