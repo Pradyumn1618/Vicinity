@@ -49,7 +49,7 @@ const useReceiverStatus = (receiverId: string | null, setReceiverDetails: (data:
         setReceiverDetails((prevDetails: any) => ({
           ...prevDetails,
           ...(data.status === 'online'
-            ? { status: data.status }
+            ? { status: data.status, lastSeen: null }
             : { lastSeen: formattedLastSeen, status: null }),
         }));
       };

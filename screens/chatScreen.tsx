@@ -5,7 +5,7 @@ import { getAuth } from '@react-native-firebase/auth';
 import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc,getDoc,deleteDoc } from '@react-native-firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL,deleteObject } from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import socket from '../config/socket';
+// import socket from '../config/socket';
 import Video from 'react-native-video'; // For video rendering
 import FastImage from 'react-native-fast-image'; // For better image and GIF support
 
@@ -13,12 +13,15 @@ import { RouteProp } from '@react-navigation/native';
 import { Modal } from 'react-native';
 import { sendDMNotification } from '../helper/sendNotification';
 import useReceiverStatus from '../helper/receiverStatus';
+import { useSocket } from '../helper/socketProvider';
+import { insertMessage,incrementUnreadCount } from '../helper/databaseHelper';
 // import MediaTest from './test';
 
 type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
 
 export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const { chatId, receiver } = route.params;
+  const socket = useSocket();
   interface Message {
     id: string;
     text: string;
@@ -43,7 +46,25 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [receiverDetails, setReceiverDetails] = useState<any>(null);
   // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   // const [initialScrollDone, setInitialScrollDone] = useState(false);
-
+  useEffect(() => {
+    socket.on('private_message', (msg) => {
+      // 1. Save to local DB
+      insertMessage(msg);
+  
+      // 2. Show in chat screen if open
+      if (chatId === msg.chatId) {
+        setMessages(prev => [...prev, msg]);
+      } else {
+        // 3. Update unread badge
+        incrementUnreadCount(msg.chatId);
+      }
+    });
+  
+    return () => {
+      socket.off('private_message');
+    };
+  }, [socket,chatId]);
+  
 
 
   const handleMediaPress = (uri: string) => {
@@ -60,57 +81,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const db = getFirestore();
   const storage = getStorage();
 
-  // useEffect(() => {
-  //   if (!receiver) return;
-  
-  //   let interval: any;
-  //   let isMounted = true;
-  
-  //   const fetchReceiverDetails = async () => {
-  //     try {
-  //       const userRef = doc(db, 'users', receiver);
-  //       const userDoc = await getDoc(userRef);
-  
-  //       if (userDoc.exists && isMounted) {
-  //         setReceiverDetails((prevDetails: any) => ({
-  //           ...prevDetails,
-  //           ...userDoc.data(),
-  //         }));
-  
-  //         if (!socket.connected) {
-  //           socket.connect();
-  //         }
-  
-  //         interval = setInterval(() => {
-  //           socket.emit('get_status', { userId: receiver });
-  //         }, 5000);
-  
-  //         const handleStatusResponse = (data: { status: string; lastSeen: string }) => {
-  //           setReceiverDetails((prevDetails: any) => ({
-  //             ...prevDetails,
-  //             ...(data.status === 'online'
-  //               ? { status: data.status }
-  //               : { lastSeen: data.lastSeen, status: null }),
-  //           }));
-  //         };
-  
-  //         socket.on('status_response', handleStatusResponse);
-  //       } else {
-  //         console.log('No such document!');
-  //       }
-  //     } catch (error) {
-  //       console.error('Error fetching receiver details:', error);
-  //     }
-  //   };
-  
-  //   fetchReceiverDetails();
-  
-  //   return () => {
-  //     isMounted = false;
-  //     clearInterval(interval);
-  //     socket.off('status_response');
-  //   };
-  // }, [receiver, db]);
+
   useReceiverStatus(receiver, setReceiverDetails);
 
   // Fetch messages from Firestore
@@ -213,7 +184,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     setUploadProgress(0);
     // Scroll to bottom after sending
     // scrollToBottom();
-    sendDMNotification([receiverDetails?.fcmToken], receiverDetails?.username, newMessage.text,chatId,receiver);
+    sendDMNotification([receiverDetails?.fcmToken], currentUserId, newMessage.text,chatId);
     socket.emit('send-dm', { id: chatId, receiver: receiver, message: newMessage });
   };
 
