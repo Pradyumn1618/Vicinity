@@ -168,9 +168,9 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
       {/* Bottom Navigation Buttons */}
       <View className="absolute bottom-5 left-5 right-5 flex-row justify-around bg-zinc-900 py-3 rounded-xl shadow-lg border border-zinc-800" >
-        <TouchableOpacity onPress={() => navigation.navigate('Details')} className="items-center">
-          <Ionicons name="information-circle-outline" size={24} color="white" />
-          <Text className="text-white text-xs mt-1">Details</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Events')} className="items-center">
+          <Ionicons name="newspaper-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Events</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.navigate('Profile')} className="items-center">
