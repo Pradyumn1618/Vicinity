@@ -7,6 +7,7 @@ import Geohash from 'ngeohash';
 import GetLocation from 'react-native-get-location';
 import EventCard from '../components/EventCard';
 import CreateEventModal from '../components/CreateEventModal'; // Import the new component
+import auth from '@react-native-firebase/auth';
 
 interface Event {
   id: string;
@@ -18,6 +19,7 @@ interface Event {
   location: { _latitude: number; _longitude: number };
   public: boolean;
   createdBy: string;
+  allowedUsers?: string[];
 }
 
 const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
@@ -30,61 +32,96 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
 
   const fetchNearbyEvents = React.useCallback((center: [number, number], radius = 5) => {
     setLoading(true);
-
-    // Generate the geohash for the user's current location
+  
+    const currentUser = auth().currentUser;
+    const userId = currentUser?.uid;
+  
+    if (!userId) {
+      console.error('User not authenticated');
+      setLoading(false);
+      return;
+    }
+  
     const currentGeohash = Geohash.encode(center[0], center[1]).substring(0, 5);
-    const neighbors = Geohash.neighbors(currentGeohash).map(geohash => geohash.substring(0, 5));
+    const neighbors = Geohash.neighbors(currentGeohash).map(g => g.substring(0, 5));
     const geohashesToQuery = [currentGeohash, ...neighbors];
-
-    // console.log('Geohashes to query:', geohashesToQuery);
-
-    // Query Firestore for events in the current geohash and its neighbors
-    const q = query(
+  
+    // 🔹 Query 1: Public nearby events
+    const publicQuery = query(
       collection(db, 'Events'),
-      where('geohash', 'in', geohashesToQuery), // Use 'in' to query multiple geohashes
+      where('geohash', 'in', geohashesToQuery),
+      where('public', '==', true)
     );
-
-    const unsubscribe = onSnapshot(q, snapshot => {
-      const matchingDocs: Event[] = [];
-      snapshot.forEach(doc => {
-        const eventData = doc.data();
+  
+    // 🔹 Query 2: Private events user is allowed to see (no geohash filter)
+    const privateQuery = query(
+      collection(db, 'Events'),
+      where('allowedUsers', 'array-contains', userId),
+      where('public', '==', false)
+    );
+  
+    // Temporary buffer to combine events
+    let allEvents: Event[] = [];
+  
+    const processSnapshot = (snapshot: any, isPublic: boolean) => {
+      const now = new Date();
+      const result: Event[] = [];
+  
+      snapshot.forEach((doc: any) => {
+        const data = doc.data();
         const event: Event = {
           id: doc.id,
-          title: eventData.title,
-          description: eventData.description,
-          dateTime: eventData.dateTime.toDate(),
-          venue: eventData.venue,
-          geohash: eventData.geohash,
-          location: eventData.location,
-          public: eventData.public,
-          createdBy: eventData.createdBy,
+          title: data.title,
+          description: data.description,
+          dateTime: data.dateTime.toDate(),
+          venue: data.venue,
+          geohash: data.geohash,
+          location: data.location,
+          public: data.public,
+          createdBy: data.createdBy,
+          allowedUsers: data.allowedUsers || [],
         };
-        matchingDocs.push(event);
+  
+        if (event.dateTime > now) {
+          if (isPublic) {
+            const distance = distanceBetween(
+              [event.location._latitude, event.location._longitude],
+              center
+            );
+            if (distance <= radius) result.push(event);
+          } else {
+            result.push(event); // No distance filter for private
+          }
+        }
       });
-
-      // Filter by actual distance
-      const filteredEvents = matchingDocs.filter(event => {
-        const distance = distanceBetween([event.location._latitude, event.location._longitude], center);
-        return distance * 10000 <= radius * 10000;
+  
+      // Merge and sort only after both queries return (debounced update)
+      allEvents = [...allEvents.filter(e => e.public !== isPublic), ...result];
+  
+      const sorted = allEvents.sort((a, b) => {
+        const d1 = distanceBetween([a.location._latitude, a.location._longitude], center);
+        const d2 = distanceBetween([b.location._latitude, b.location._longitude], center);
+        return d1 - d2;
       });
-
-      // console.log('Filtered Events:', filteredEvents);
-
-      // Sort events by distance (optional)
-      const sortedEvents = filteredEvents.sort((a, b) => {
-        const distanceA = distanceBetween([a.location._latitude, a.location._longitude], center);
-        const distanceB = distanceBetween([b.location._latitude, b.location._longitude], center);
-        return distanceA - distanceB;
-      });
-
-      // Update the state with the sorted events
-      setEvents(sortedEvents.slice(0, 10)); // Limit to 10 events
+  
+      setEvents(sorted.slice(0, 10));
       setLoading(false);
+    };
+  
+    const unsubscribePublic = onSnapshot(publicQuery, snapshot => {
+      processSnapshot(snapshot, true);
     });
-
-    return () => unsubscribe();
+  
+    const unsubscribePrivate = onSnapshot(privateQuery, snapshot => {
+      processSnapshot(snapshot, false);
+    });
+  
+    return () => {
+      unsubscribePublic();
+      unsubscribePrivate();
+    };
   }, [db]);
-
+  
   useEffect(() => {
     const getLocation = async () => {
       try {

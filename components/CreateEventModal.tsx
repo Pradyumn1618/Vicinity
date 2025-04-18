@@ -22,11 +22,23 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
         venue: '',
         location: { lat: 0, lng: 0 },
         public: true,
+        allowedUsers: [] as string[],
     });
+    const [userInputs, setUserInputs] = useState<string[]>(['']);
     const [loading, setLoading] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
     const db = getFirestore();
+
+    const handleAddUserInput = () => {
+        setUserInputs([...userInputs, '']);
+    };
+
+    const handleUserInputChange = (index: number, value: string) => {
+        const updatedInputs = [...userInputs];
+        updatedInputs[index] = value;
+        setUserInputs(updatedInputs);
+    };
 
     const handlePlaceSelected = (venue: string, location: { lat: number; lng: number }) => {
         setForm({ ...form, venue, location });
@@ -49,6 +61,22 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
             const userData = userDoc.data();
             const username = userData?.username || 'Unknown User'; // Default to 'Unknown User' if username is not found
 
+            // Convert usernames to user IDs in the backend
+            const allowedUsers: string[] = [];
+            for (const username of userInputs) {
+                if (username.trim() !== '') {
+                    const querySnapshot = await getFirestore()
+                        .collection('users')
+                        .where('username', '==', username.trim())
+                        .get();
+                    if (!querySnapshot.empty) {
+                        querySnapshot.forEach(doc => allowedUsers.push(doc.id)); // Add user ID
+                    } else {
+                        Alert.alert('Warning', `User "${username}" not found.`);
+                    }
+                }
+            }
+
             const eventData = {
                 ...form,
                 location: new (require('@react-native-firebase/firestore')).GeoPoint(
@@ -58,6 +86,7 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                 geohash,
                 createdBy: username,
                 createdAt: serverTimestamp(),
+                allowedUsers: form.public ? [] : allowedUsers,
             };
 
             // Add the event to Firestore
@@ -72,7 +101,9 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                 venue: '',
                 location: { lat: 0, lng: 0 },
                 public: true,
+                allowedUsers: [],
             });
+            setUserInputs(['']); // Reset user inputs
             onClose(); // Close the modal
         } catch (error) {
             Alert.alert('Error', 'Failed to create event. Please check the venue and try again.');
@@ -183,6 +214,22 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                             <Text style={styles.toggleText}>Private</Text>
                         </TouchableOpacity>
                     </View>
+
+                    {!form.public && (
+                        <View>
+                            <Text style={styles.title}>Allowed Users</Text>
+                            {userInputs.map((input, index) => (
+                                <TextInput
+                                    key={index}
+                                    placeholder="Enter username"
+                                    value={input}
+                                    onChangeText={text => handleUserInputChange(index, text)}
+                                    style={styles.input}
+                                />
+                            ))}
+                            <Button title="Add More" onPress={handleAddUserInput} />
+                        </View>
+                    )}
 
 
                     <Button title="Create Event" onPress={handleCreateEvent} disabled={loading} />
