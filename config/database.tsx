@@ -21,7 +21,11 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
       replyToId TEXT,
       timestamp INTEGER,
       delivered INTEGER DEFAULT 0,
-      seen INTEGER DEFAULT 0
+      seen INTEGER DEFAULT 0,
+      nonce TEXT,
+      senderPublicKey TEXT,
+      medianonce TEXT,
+      FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE,  
     );
   `);
 
@@ -29,7 +33,9 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
     await db.executeSql(`
     CREATE TABLE IF NOT EXISTS unread_counts (
       chatId TEXT PRIMARY KEY,
-      count INTEGER
+      count INTEGER,
+      UnreadTimestamp INTEGER DEFAULT DateTime('now'),
+      FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE
     );
   `);
 

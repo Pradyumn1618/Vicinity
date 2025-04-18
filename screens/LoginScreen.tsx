@@ -36,7 +36,7 @@ useFocusEffect(
 
   GoogleSignin.configure({
     webClientId: '732981048166-ms933vk9p8u5pstc5cc5rf2jdmlps9h7.apps.googleusercontent.com',
-    offlineAccess: true,  // Required for idToken
+    offlineAccess: true,
     forceCodeForRefreshToken: true,
   });
 
