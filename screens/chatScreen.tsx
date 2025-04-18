@@ -16,7 +16,13 @@ import useReceiverStatus from '../helper/receiverStatus';
 import { useSocket } from '../helper/socketProvider';
 import { useChatContext } from '../context/chatContext';
 
-import { resetUnreadCount } from '../helper/databaseHelper';
+import { resetUnreadCount,resetUnreadTimestamp,getUnreadTimestamp } from '../helper/databaseHelper';
+import * as Keychain from 'react-native-keychain';
+import { decryptMessage,generateSharedSecret,encryptMessage } from '../helper/cryptoUtils';
+// import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
+// import sodium from 'libsodium-wrappers';
+
+
 
 
 type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
@@ -39,6 +45,8 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const { setCurrentChatId } = useChatContext();
   const { setChats } = useChatContext();
   resetUnreadCount(chatId);
+  resetUnreadTimestamp(chatId);
+
   
   const [inputText, setInputText] = useState('');
   const [replyTo, setReplyTo] = useState<{ text: string; id: string } | null>(null);
@@ -52,6 +60,10 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [attachedMedia, setAttachedMedia] = useState<{ uri: string, filename: string, type: string } | null>(null);
   const [pressedFileExt, setPressedFileExt] = useState<string | null>(null);
   const [receiverDetails, setReceiverDetails] = useState<any>(null);
+  const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [unreadTimestamp, setUnreadTimestamp] = useState<number | null>(null);
+  const [unreadIndex, setUnreadIndex] = useState<number | null>(null);
+
   // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   // const [initialScrollDone, setInitialScrollDone] = useState(false);
 
@@ -89,15 +101,25 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     };
   }, [socket, receiver]);
 
-  
+  const KEY_SERVICE = 'com.vicinity.privatekeys';
+
   useReceiverStatus(receiver, setReceiverDetails);
   useEffect(() => {
+
+    const fetchunreadTimestamp = async () => {
+      const timestamp = await getUnreadTimestamp(chatId);
+      if (timestamp) {
+        setUnreadTimestamp(timestamp);
+      }
+    };
+
     const fetchReceiverDetails = async () => {
       if (!receiver) return;
   
       try {
         const userRef = doc(db, 'users', receiver);
         const userDoc = await getDoc(userRef);
+        
   
         if (userDoc.exists) {
           setReceiverDetails((prev: any) => ({
@@ -109,54 +131,194 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         console.error('Failed to fetch receiver details:', error);
       }
     };
-  
     fetchReceiverDetails();
-  }, [receiver,db]);
+    fetchunreadTimestamp();
+  }, [receiver,db,chatId]);
+
+  useEffect(() => {
+    if(unreadTimestamp){
+    const index = messages.findIndex(msg => msg.timestamp < unreadTimestamp);
+    if (index !== -1) {
+      setUnreadIndex(index);
+    }
+  }
+  }, [messages,unreadTimestamp]);
+
+  useEffect(() => {
+    if (unreadIndex !== null && flatListRef.current) {
+      flatListRef.current.scrollToIndex({
+        index: unreadIndex,
+        viewPosition: 0.5, // centers it
+        animated: true,
+      });
+    }
+  }, [unreadIndex]);
+  
+
+  useEffect(() => {
+    const fetchPublicKey = async () => {
+      if (!currentUserId) return;
+  
+      try {
+
+        const userRef = doc(db, 'users', currentUserId);
+        const userDoc = await getDoc(userRef);
+  
+        if (userDoc.exists) {
+          const data = userDoc.data();
+          if (data && data.publicKey) {
+            setPublicKey(data.publicKey);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch public key:', error);
+      }
+    };
+  
+    fetchPublicKey();
+  },[db,currentUserId]);
+
   
 
   // Fetch messages from Firestore
+  // useEffect(() => {
+  //   setCurrentChatId(chatId);
+  //   setChats((prevChats) => {
+  //       return prevChats.map((chat) => {
+  //         if (chat.id === chatId) {
+  //           return {
+  //             ...chat,
+  //             unreadCount: 0,
+  //           };
+  //         }
+  //         return chat;
+  //       });
+  //     });
+  //   const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
+  //   const messagesRef = collection(db, 'chats', chatId, 'messages');
+  //   const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
+
+  //   const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+  //     const fetchedMessages: Message[] = snapshot.docs.map((doc) => {
+  //       const data = doc.data();
+  //       return {
+  //         id: doc.id,
+  //         text: data.text,
+  //         sender: data.sender,
+  //         timestamp: data.timestamp instanceof Timestamp
+  //           ? data.timestamp.toDate().getTime()
+  //           : typeof data.timestamp === 'number'
+  //             ? data.timestamp
+  //             : Date.now(),
+  //         media: data.media || null,
+  //         replyTo: data.replyTo || null,
+  //         delivered: data.delivered || false,
+  //         seen: data.seen || false,
+  //       };
+  //     });
+  //     setMessages(fetchedMessages);
+      
+      
+  //     // console.log(fetchedMessages);
+  //   });
+
+  //   return () => unsubscribe(); // Cleanup listener on unmount
+  // }, [chatId, db, setMessages, setCurrentChatId,setChats]);
+
   useEffect(() => {
-    setCurrentChatId(chatId);
-    setChats((prevChats) => {
-        return prevChats.map((chat) => {
-          if (chat.id === chatId) {
-            return {
-              ...chat,
-              unreadCount: 0,
-            };
+    let unsubscribe: () => void;
+  
+    const init = async () => {
+      setCurrentChatId(chatId);
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
+          chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
+        )
+      );
+  
+      // 1. Get user's private key from Keychain
+      const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
+      if (!existingKey) {
+        console.warn('Private key not found in secure storage');
+        return;
+      }
+  
+      const myPrivateKey = Buffer.from(existingKey.password, 'hex');
+  
+      const messagesRef = collection(db, 'chats', chatId, 'messages');
+      const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
+  
+      unsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
+        const decryptedMessages: Message[] = [];
+  
+        for (const doc of snapshot.docs) {
+          const data = doc.data();
+  
+          // If encrypted
+          if (data.text && data.nonce && data.senderPubKey) {
+            try {
+              const senderPubKey = Buffer.from(data.senderPubKey, 'hex');
+              const nonce = Buffer.from(data.nonce, 'hex');
+              const ciphertext = Buffer.from(data.text, 'hex');
+              let medianonce = null;
+              if(data.medianonce){
+                medianonce = Buffer.from(data.medianonce, 'hex');
+              }
+              let media = null;
+              if(data.media){
+                media = Buffer.from(data.media, 'hex');
+              }
+  
+              const decrypted = decryptMessage(ciphertext.toString('hex'), nonce.toString('hex'), myPrivateKey.toString('hex'), senderPubKey.toString('hex'));
+              const decryptedMedia = media && medianonce ? decryptMessage(media.toString('hex'), medianonce.toString('hex'), myPrivateKey.toString('hex'), senderPubKey.toString('hex')) : null;
+
+              decryptedMessages.push({
+                id: doc.id,
+                text: decrypted,
+                sender: data.sender,
+                timestamp: data.timestamp instanceof Timestamp
+                  ? data.timestamp.toDate().getTime()
+                  : typeof data.timestamp === 'number'
+                    ? data.timestamp
+                    : Date.now(),
+                media: decryptedMedia || null,
+                replyTo: data.replyTo || null,
+                delivered: data.delivered || false,
+                seen: data.seen || false,
+              });
+            } catch (e) {
+              console.error(`❌ Failed to decrypt message ${doc.id}`, e);
+            }
+          } else {
+            // Unencrypted fallback
+            decryptedMessages.push({
+              id: doc.id,
+              text: data.text || '',
+              sender: data.sender,
+              timestamp: data.timestamp instanceof Timestamp
+                ? data.timestamp.toDate().getTime()
+                : typeof data.timestamp === 'number'
+                  ? data.timestamp
+                  : Date.now(),
+              media: data.media || null,
+              replyTo: data.replyTo || null,
+              delivered: data.delivered || false,
+              seen: data.seen || false,
+            });
           }
-          return chat;
-        });
+        }
+  
+        setMessages(decryptedMessages);
       });
-    const messagesRef = collection(db, 'chats', chatId, 'messages');
-    const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
-
-    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
-      const fetchedMessages: Message[] = snapshot.docs.map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          text: data.text,
-          sender: data.sender,
-          timestamp: data.timestamp instanceof Timestamp
-            ? data.timestamp.toDate().getTime()
-            : typeof data.timestamp === 'number'
-              ? data.timestamp
-              : Date.now(),
-          media: data.media || null,
-          replyTo: data.replyTo || null,
-          delivered: data.delivered || false,
-          seen: data.seen || false,
-        };
-      });
-      setMessages(fetchedMessages);
-      
-      
-      // console.log(fetchedMessages);
-    });
-
-    return () => unsubscribe(); // Cleanup listener on unmount
-  }, [chatId, db, setMessages, setCurrentChatId,setChats]);
+    };
+  
+    init();
+  
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [chatId, db, setMessages, setCurrentChatId, setChats,auth]);
+  
 
   const handleSend = async () => {
     if (!inputText.trim() && !attachedMedia) return; // Ensure either text or media is present
@@ -191,18 +353,29 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         return;
       }
     }
-
+    const sharedSecret = generateSharedSecret(receiverDetails?.publicKey, publicKey ?? '');
+    const { cipherText, nonce } = encryptMessage(inputText, sharedSecret);
+    let medianonce = null;
+    let mediaCipher = null;
+    if (media) {
+      const { cipherText: mediaCipherText, nonce: mediaNonce } = encryptMessage(media, sharedSecret);
+      mediaCipher = mediaCipherText;
+      medianonce = mediaNonce;
+    }
     const messageId = chatId + Date.now().toString();
     const newMessage = {
       id: messageId, // unique id for the message
       sender: currentUserId,
       receiver: receiver,
-      text: inputText,
-      media: media, // or a URL/string if media is attached
+      text: cipherText,
+      media: mediaCipher, // or a URL/string if media is attached
       timestamp: Date.now(),
       replyTo: replyTo || null,
       delivered: false,
       seen: false,
+      nonce: nonce,
+      senderPubKey: publicKey,
+      medianonce: medianonce,
     };
     console.log('newMessage:', newMessage);
     setMessages(prevMessages => [...prevMessages, { ...newMessage }]);
@@ -371,9 +544,10 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   // };
 
 
-  const renderMessage = ({ item }: { item: Message }) => {
+  const renderMessage = ({ item,index }: { item: Message,index:number }) => {
     const isMine = item.sender === currentUserId;
     const isHighlighted = item.id === highlightedMessageId;
+    const showUnreadDivider = index === unreadIndex;
 
     const scrollToMessageById = (messageId: string) => {
       const targetIndex = messageIdToIndexMap[messageId];
@@ -405,6 +579,13 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
           } ${isHighlighted ? 'border-2 border-yellow-400' : ''}`}
       >
+        {showUnreadDivider && (
+        <View className="items-center my-3">
+          <Text className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs">
+            Unread Messages
+          </Text>
+        </View>
+      )}
         {item.replyTo && (
           <TouchableOpacity onPress={handleScrollToReply}>
             <View className="mb-1 border-l-2 border-white pl-2">
@@ -452,7 +633,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         ref={flatListRef}
         data={messages}
         inverted={true}
-        renderItem={({ item }) => renderMessage({ item })}
+        renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
         initialNumToRender={10} // Optimize for large lists

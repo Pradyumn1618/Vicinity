@@ -1,5 +1,5 @@
 import { getDBConnection } from "../config/database";
-import { useChatContext } from "../context/chatContext";
+// import { useChatContext } from "../context/chatContext";
 
 interface Message {
     id: string;
@@ -10,13 +10,16 @@ interface Message {
     timestamp: number;
     delivered?: boolean;
     seen?: boolean;
+    nonce?: string;
+    senderPublicKey?: string;
+    medianonce?: string;
 }
 
 export const insertMessage = async (message: Message, chatId: string, receiver: string): Promise<void> => {
     const db = await getDBConnection();
     await db.executeSql(
-        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media, replyToText,replyToId,timestamp,delivered,seen) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [message.id, chatId, message.sender, receiver, message.text, message.media, message.replyTo?.text, message.replyTo?.id, message.timestamp, message.delivered, message.seen]
+        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media, replyToText,replyToId,timestamp,delivered,seen,nonce,senderPublicKey,medianonce) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [message.id, chatId, message.sender, receiver, message.text, message.media, message.replyTo?.text, message.replyTo?.id, message.timestamp, message.delivered, message.seen, message.nonce, message.senderPublicKey, message.medianonce]
     );
 };
 
@@ -118,3 +121,24 @@ export const insertOrUpdateChatInSQLite = async (chat: {
     );
 };
 
+export const resetUnreadTimestamp = async (chatId: string) => {
+    const db = await getDBConnection();
+    console.log('Resetting unread timestamp for chatId:', chatId);
+    await db.executeSql(
+        'INSERT OR REPLACE INTO unread_counts (chatId, UnreadTimestamp) VALUES (?, DateTime("now"))',
+        [chatId]
+    );
+    console.log('Reset unread timestamp for chatId:', chatId);
+}
+export const getUnreadTimestamp = async (chatId: string) => {
+    const db = await getDBConnection();
+    const results = await db.executeSql(
+        'SELECT UnreadTimestamp FROM unread_counts WHERE chatId = ?',
+        [chatId]
+    );
+    const rows = results[0].rows;
+    if (rows.length > 0) {
+        return rows.item(0).UnreadTimestamp;
+    }
+    return null;
+}

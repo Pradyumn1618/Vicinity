@@ -13,6 +13,7 @@ import messaging from '@react-native-firebase/messaging';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { requestLocationPermission, startLocationTracking,requestNotificationPermission } from '../helper/locationPermission';
 import { promptForEnableLocationIfNeeded } from 'react-native-android-location-enabler';
+import { setupKeys } from '../helper/cryptoUtils';
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
@@ -26,6 +27,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     if (user) {
       requestNotificationPermission();
       refreshFcmToken();
+      setupKeys();
     }
   }, []);
 
