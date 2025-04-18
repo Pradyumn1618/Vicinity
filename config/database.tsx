@@ -9,6 +9,13 @@ export const getDBConnection = async () => {
 
 export const createTables = async (db: SQLite.SQLiteDatabase) => {
     // Messages Table
+    await db.executeSql(`CREATE TABLE IF NOT EXISTS chats (
+  id TEXT PRIMARY KEY,
+  participants TEXT, -- Stored as JSON string
+  photoURL TEXT,
+  username TEXT
+  );
+    `);
     await db.executeSql(`
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
@@ -25,27 +32,20 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
       nonce TEXT,
       senderPublicKey TEXT,
       medianonce TEXT,
-      FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE,  
+      FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE  
     );
   `);
 
     // Unread Count Table
     await db.executeSql(`
     CREATE TABLE IF NOT EXISTS unread_counts (
-      chatId TEXT PRIMARY KEY,
-      count INTEGER,
-      UnreadTimestamp INTEGER DEFAULT DateTime('now'),
-      FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE
-    );
+  chatId TEXT PRIMARY KEY,
+  count INTEGER,
+  UnreadTimestamp INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE
+);
   `);
 
-    await db.executeSql(`CREATE TABLE IF NOT EXISTS chats (
-  id TEXT PRIMARY KEY,
-  participants TEXT, -- Stored as JSON string
-  photoURL TEXT,
-  username TEXT
-);
-    `);
 
 
 };

@@ -56,19 +56,25 @@ useFocusEffect(
 
     const fetchChats = async () => {
       const userId = auth.currentUser?.uid;
-      if (!userId) return;
+      if (!userId){
+        console.log('user not found!');
+      return;
+      }
+        
 
       // STEP 1: Fetch from SQLite immediately
-      const localChats = await getAllChatsFromSQLite(userId);
+      let localChats = null;
+      localChats = await getAllChatsFromSQLite(userId);
       console.log('Local chats:', localChats);
       setChats(localChats); // show cached chats first
-
+      
       // STEP 2: Start listening to Firestore updates
+      console.log("userId:",userId);
       const chatsRef = collection(db, 'chats');
       const chatsQuery = query(chatsRef, where('participants', 'array-contains', userId));
 
       unsubscribeFirestore = onSnapshot(chatsQuery, async (snapshot) => {
-        const localChatMap = new Map(localChats.map((chat) => [chat.id, chat]));
+        const localChatMap = new Map(localChats?.map((chat) => [chat.id, chat]));
 
         const chatList = await Promise.all(
           snapshot.docs.map(async (d) => {

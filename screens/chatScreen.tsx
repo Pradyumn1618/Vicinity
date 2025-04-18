@@ -16,9 +16,9 @@ import useReceiverStatus from '../helper/receiverStatus';
 import { useSocket } from '../helper/socketProvider';
 import { useChatContext } from '../context/chatContext';
 
-import { resetUnreadCount,resetUnreadTimestamp,getUnreadTimestamp } from '../helper/databaseHelper';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp } from '../helper/databaseHelper';
 import * as Keychain from 'react-native-keychain';
-import { decryptMessage,generateSharedSecret,encryptMessage } from '../helper/cryptoUtils';
+import { decryptMessage, generateSharedSecret, encryptMessage } from '../helper/cryptoUtils';
 // import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
 // import sodium from 'libsodium-wrappers';
 
@@ -44,10 +44,9 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const { messages, setMessages } = useChatContext();
   const { setCurrentChatId } = useChatContext();
   const { setChats } = useChatContext();
-  resetUnreadCount(chatId);
-  resetUnreadTimestamp(chatId);
 
-  
+
+
   const [inputText, setInputText] = useState('');
   const [replyTo, setReplyTo] = useState<{ text: string; id: string } | null>(null);
   // const [media, setMedia] = useState<string | null>(null);
@@ -115,12 +114,12 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
     const fetchReceiverDetails = async () => {
       if (!receiver) return;
-  
+
       try {
         const userRef = doc(db, 'users', receiver);
         const userDoc = await getDoc(userRef);
-        
-  
+
+
         if (userDoc.exists) {
           setReceiverDetails((prev: any) => ({
             ...prev,
@@ -133,16 +132,16 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     };
     fetchReceiverDetails();
     fetchunreadTimestamp();
-  }, [receiver,db,chatId]);
+  }, [receiver, db, chatId]);
 
   useEffect(() => {
-    if(unreadTimestamp){
-    const index = messages.findIndex(msg => msg.timestamp < unreadTimestamp);
-    if (index !== -1) {
-      setUnreadIndex(index);
+    if (unreadTimestamp) {
+      const index = messages.findIndex(msg => msg.timestamp < unreadTimestamp);
+      if (index !== -1) {
+        setUnreadIndex(index);
+      }
     }
-  }
-  }, [messages,unreadTimestamp]);
+  }, [messages, unreadTimestamp]);
 
   useEffect(() => {
     if (unreadIndex !== null && flatListRef.current) {
@@ -153,17 +152,17 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       });
     }
   }, [unreadIndex]);
-  
+
 
   useEffect(() => {
     const fetchPublicKey = async () => {
       if (!currentUserId) return;
-  
+
       try {
 
         const userRef = doc(db, 'users', currentUserId);
         const userDoc = await getDoc(userRef);
-  
+
         if (userDoc.exists) {
           const data = userDoc.data();
           if (data && data.publicKey) {
@@ -174,11 +173,11 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         console.error('Failed to fetch public key:', error);
       }
     };
-  
-    fetchPublicKey();
-  },[db,currentUserId]);
 
-  
+    fetchPublicKey();
+  }, [db, currentUserId]);
+
+
 
   // Fetch messages from Firestore
   // useEffect(() => {
@@ -217,8 +216,8 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   //       };
   //     });
   //     setMessages(fetchedMessages);
-      
-      
+
+
   //     // console.log(fetchedMessages);
   //   });
 
@@ -227,33 +226,39 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
   useEffect(() => {
     let unsubscribe: () => void;
-  
+
     const init = async () => {
       setCurrentChatId(chatId);
+      resetUnreadCount(chatId);
+      resetUnreadTimestamp(chatId);
       setChats((prevChats) =>
         prevChats.map((chat) =>
           chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
         )
       );
-  
+
       // 1. Get user's private key from Keychain
       const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
       if (!existingKey) {
-        console.warn('Private key not found in secure storage');
+        console.log('Private key not found in secure storage');
         return;
       }
-  
+
       const myPrivateKey = Buffer.from(existingKey.password, 'hex');
-  
+      // console.log("Here4",existingKey);
+      console.log(myPrivateKey);
+
       const messagesRef = collection(db, 'chats', chatId, 'messages');
       const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
-  
+
+
       unsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
         const decryptedMessages: Message[] = [];
-  
-        for (const doc of snapshot.docs) {
-          const data = doc.data();
-  
+
+        for (const d of snapshot.docs) {
+          const data = d.data();
+          console.log("data", data);
+
           // If encrypted
           if (data.text && data.nonce && data.senderPubKey) {
             try {
@@ -261,19 +266,19 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
               const nonce = Buffer.from(data.nonce, 'hex');
               const ciphertext = Buffer.from(data.text, 'hex');
               let medianonce = null;
-              if(data.medianonce){
+              if (data.medianonce) {
                 medianonce = Buffer.from(data.medianonce, 'hex');
               }
               let media = null;
-              if(data.media){
+              if (data.media) {
                 media = Buffer.from(data.media, 'hex');
               }
-  
+
               const decrypted = decryptMessage(ciphertext.toString('hex'), nonce.toString('hex'), myPrivateKey.toString('hex'), senderPubKey.toString('hex'));
               const decryptedMedia = media && medianonce ? decryptMessage(media.toString('hex'), medianonce.toString('hex'), myPrivateKey.toString('hex'), senderPubKey.toString('hex')) : null;
 
               decryptedMessages.push({
-                id: doc.id,
+                id: d.id,
                 text: decrypted,
                 sender: data.sender,
                 timestamp: data.timestamp instanceof Timestamp
@@ -287,12 +292,13 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
                 seen: data.seen || false,
               });
             } catch (e) {
-              console.error(`❌ Failed to decrypt message ${doc.id}`, e);
+              console.error(`❌ Failed to decrypt message ${d.id}`, e);
             }
           } else {
             // Unencrypted fallback
+            console.log("No encrypted messages");
             decryptedMessages.push({
-              id: doc.id,
+              id: d.id,
               text: data.text || '',
               sender: data.sender,
               timestamp: data.timestamp instanceof Timestamp
@@ -307,22 +313,26 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
             });
           }
         }
-  
+
         setMessages(decryptedMessages);
+        console.log(decryptedMessages);
       });
     };
-  
+
     init();
-  
+
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [chatId, db, setMessages, setCurrentChatId, setChats,auth]);
-  
+  }, [chatId, db, setMessages, setCurrentChatId, setChats, auth]);
+
 
   const handleSend = async () => {
     if (!inputText.trim() && !attachedMedia) return; // Ensure either text or media is present
-    if (!currentUserId) return;
+    if (!currentUserId) {
+      console.log("No user found");
+      return;
+    }
     console.log('currentUserId:', currentUserId);
     let media = null;
     if (attachedMedia) {
@@ -378,7 +388,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       medianonce: medianonce,
     };
     console.log('newMessage:', newMessage);
-    setMessages(prevMessages => [...prevMessages, { ...newMessage }]);
+    // setMessages(prevMessages => [...prevMessages, { ...newMessage }]);
     try {
 
       // Add the message to Firestore
@@ -544,7 +554,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   // };
 
 
-  const renderMessage = ({ item,index }: { item: Message,index:number }) => {
+  const renderMessage = ({ item, index }: { item: Message, index: number }) => {
     const isMine = item.sender === currentUserId;
     const isHighlighted = item.id === highlightedMessageId;
     const showUnreadDivider = index === unreadIndex;
@@ -580,12 +590,12 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
           } ${isHighlighted ? 'border-2 border-yellow-400' : ''}`}
       >
         {showUnreadDivider && (
-        <View className="items-center my-3">
-          <Text className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs">
-            Unread Messages
-          </Text>
-        </View>
-      )}
+          <View className="items-center my-3">
+            <Text className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs">
+              Unread Messages
+            </Text>
+          </View>
+        )}
         {item.replyTo && (
           <TouchableOpacity onPress={handleScrollToReply}>
             <View className="mb-1 border-l-2 border-white pl-2">

@@ -15,6 +15,9 @@ import { getDBConnection, createTables } from './config/database';
 import { ChatProvider } from './context/chatContext';
 import { useChatContext } from './context/chatContext';
 import { getAllChatsFromSQLite, incrementUnreadCount } from './helper/databaseHelper';
+import { Buffer } from 'buffer';
+global.Buffer = Buffer;
+
 
 
 const App = () => {
@@ -32,8 +35,12 @@ const App = () => {
 
   useEffect(() => {
     const setupDatabase = async () => {
+      try{
       const db = await getDBConnection();
       await createTables(db);
+      }catch(error){
+        console.log("message start:",error.message);
+      }
     };
 
     setupDatabase();

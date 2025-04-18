@@ -23,12 +23,12 @@ interface Event {
 const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
   const [events, setEvents] = useState<Event[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null); // Track expanded card
   const db = getFirestore();
 
-  const fetchNearbyEvents = (center: [number, number], radius = 5) => {
+  const fetchNearbyEvents = React.useCallback((center: [number, number], radius = 5) => {
     setLoading(true);
 
     // Generate the geohash for the user's current location
@@ -83,7 +83,7 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
     });
 
     return () => unsubscribe();
-  };
+  }, [db]);
 
   useEffect(() => {
     const getLocation = async () => {
@@ -100,7 +100,7 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
       }
     };
     getLocation();
-  }, []);
+  }, [fetchNearbyEvents]);
 
   const toggleExpand = (id: string) => {
     setExpandedEventId(prevId => (prevId === id ? null : id)); // Toggle expand/collapse
