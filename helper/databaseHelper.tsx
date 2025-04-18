@@ -5,28 +5,25 @@ interface Message {
     id: string;
     sender: string;
     text: string;
-    media: string | null;
+    media?: string | null;
     replyTo?: { text: string; id: string } | null;
     timestamp: number;
     delivered?: boolean;
     seen?: boolean;
-    nonce?: string;
-    senderPublicKey?: string;
-    medianonce?: string;
 }
 
 export const insertMessage = async (message: Message, chatId: string, receiver: string): Promise<void> => {
     const db = await getDBConnection();
     await db.executeSql(
-        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media, replyToText,replyToId,timestamp,delivered,seen,nonce,senderPublicKey,medianonce) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        [message.id, chatId, message.sender, receiver, message.text, message.media, message.replyTo?.text, message.replyTo?.id, message.timestamp, message.delivered, message.seen, message.nonce, message.senderPublicKey, message.medianonce]
+        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media, replyToText,replyToId,timestamp,delivered,seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,)',
+        [message.id, chatId, message.sender, receiver, message.text, message.media, message.replyTo?.text, message.replyTo?.id, message.timestamp, message.delivered, message.seen]
     );
 };
 
 export const getMessages = async (chatId: string) => {
     const db = await getDBConnection();
     const results = await db.executeSql(
-        'SELECT * FROM messages WHERE chatId = ? ORDER BY timestamp ASC',
+        'SELECT * FROM messages WHERE chatId = ? ORDER BY timestamp DESC',
         [chatId]
     );
     const rows = results[0].rows;
@@ -53,6 +50,15 @@ export const incrementUnreadCount = async (chatId: string) => {
         [chatId, chatId]
     );
 };
+
+export const decrementUnreadCount = async (chatId: string) => {
+    const db = await getDBConnection();
+    console.log('Decrementing unread count for chatId:', chatId);
+    await db.executeSql(
+        'UPDATE unread_counts SET count = count - 1 WHERE chatId = ? AND count > 0',
+        [chatId]
+    );
+}
 
 export const resetUnreadCount = async (chatId: string) => {
     const db = await getDBConnection();

@@ -5,7 +5,7 @@ import firestore from '@react-native-firebase/firestore';
 import { AppState } from 'react-native';
 import socket from '../config/socket';
 import { createContext, useContext } from 'react';
-import { insertMessage, incrementUnreadCount } from '../helper/databaseHelper';
+import { insertMessage, incrementUnreadCount, deleteMessage, decrementUnreadCount } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
 import { decryptMessage } from './cryptoUtils';
 import * as Keychain from 'react-native-keychain';
@@ -53,67 +53,99 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         profilePic: data.profilePic,
       });
 
+      socket.on('delete-message', async (msg) => {
+        const {messageId,chatId} = msg;
+        deleteMessage(messageId);
+        if (currentChatId === chatId) {
+          setMessages((prev: Message[]) => prev.filter((message) => message.id !== messageId));
+        }else{
+          decrementUnreadCount(chatId);
+        }
+
+      });
+
       // Remove any existing listener before adding a new one
       socket.off('receive-dm');
 
       socket.on('receive-dm', async (msg) => {
         const myUid = auth().currentUser?.uid ?? 'unknown_user';
-      
+        let decryptedMessage: Message | null = null;
+        const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
+        if (!existingKey) {
+          console.warn('Private key not found in Keychain');
+          return;
+        }
+
+        const myPrivateKey = Buffer.from(existingKey.password, 'hex');
+
+        if (msg.text && msg.nonce && msg.senderPubKey) {
+          const senderPubKey = Buffer.from(msg.senderPubKey, 'hex');
+          const nonce = Buffer.from(msg.nonce, 'hex');
+          const ciphertext = Buffer.from(msg.text, 'hex');
+
+          let medianonce = null;
+          let decryptedMedia = null;
+          if (msg.media && msg.medianonce) {
+            medianonce = Buffer.from(msg.medianonce, 'hex');
+            const mediaBuffer = Buffer.from(msg.media, 'hex');
+            decryptedMedia = decryptMessage(
+              mediaBuffer.toString('hex'),
+              medianonce.toString('hex'),
+              myPrivateKey.toString('hex'),
+              senderPubKey.toString('hex')
+            );
+          }
+
+          const decryptedText = decryptMessage(
+            ciphertext.toString('hex'),
+            nonce.toString('hex'),
+            myPrivateKey.toString('hex'),
+            senderPubKey.toString('hex')
+          );
+
+          decryptedMessage = {
+            id: msg.id,
+            sender: msg.sender,
+            text: decryptedText,
+            media: decryptedMedia || null,
+            replyTo: msg.replyTo || null,
+            timestamp: typeof msg.timestamp === 'number'
+              ? msg.timestamp
+              : msg.timestamp?.toDate?.().getTime?.() || Date.now(),
+            delivered: true,
+            seen: msg.seen || false,
+          };
+        } else {
+          decryptedMessage = {
+            id: msg.id,
+            sender: msg.sender,
+            text: msg.text,
+            media: null,
+            replyTo: msg.replyTo || null,
+            timestamp: typeof msg.timestamp === 'number'
+              ? msg.timestamp
+              : msg.timestamp?.toDate?.().getTime?.() || Date.now(),
+            delivered: true,
+            seen: msg.seen || false,
+          }
+        }
+
         // Store encrypted message locally
-        insertMessage(msg, msg.chatId, myUid);
-      
+        if (decryptedMessage) {
+          insertMessage(decryptedMessage, msg.chatId, myUid);
+        } else {
+          console.warn('Decrypted message is null, skipping insertion');
+        }
+
         if (currentChatId === msg.chatId) {
-          try {
-            const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
-            if (!existingKey) {
-              console.warn('Private key not found in Keychain');
-              return;
-            }
-      
-            const myPrivateKey = Buffer.from(existingKey.password, 'hex');
-      
-            if (msg.text && msg.nonce && msg.senderEphemeralPubKey) {
-              const senderPubKey = Buffer.from(msg.senderEphemeralPubKey, 'hex');
-              const nonce = Buffer.from(msg.nonce, 'hex');
-              const ciphertext = Buffer.from(msg.text, 'hex');
-      
-              let medianonce = null;
-              let decryptedMedia = null;
-              if (msg.media && msg.medianonce) {
-                medianonce = Buffer.from(msg.medianonce, 'hex');
-                const mediaBuffer = Buffer.from(msg.media, 'hex');
-                decryptedMedia = decryptMessage(
-                  mediaBuffer.toString('hex'),
-                  medianonce.toString('hex'),
-                  myPrivateKey.toString('hex'),
-                  senderPubKey.toString('hex')
-                );
-              }
-      
-              const decryptedText = decryptMessage(
-                ciphertext.toString('hex'),
-                nonce.toString('hex'),
-                myPrivateKey.toString('hex'),
-                senderPubKey.toString('hex')
-              );
-      
-              const decryptedMessage: Message = {
-                ...msg,
-                text: decryptedText,
-                media: decryptedMedia || null,
-                timestamp: typeof msg.timestamp === 'number'
-                  ? msg.timestamp
-                  : msg.timestamp?.toDate?.().getTime?.() || Date.now(),
-              };
-      
-              setMessages((prev: Message[]) => [...prev, decryptedMessage]);
-            } else {
-              console.warn('Missing fields for decryption');
-            }
-          } catch (err) {
-            console.error('❌ Failed to decrypt received message', err);
+
+          if (decryptedMessage) {
+            decryptedMessage.seen = true;
+            setMessages((prev: Message[]) => [...prev, decryptedMessage]);
           }
         } else {
+          console.warn('Missing fields for decryption');
+
           await incrementUnreadCount(msg.chatId);
           setChats((prevChats) =>
             prevChats.map((chat) => {
@@ -128,7 +160,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
           );
         }
       });
-      
+
 
     } catch (err) {
       console.error('🔥 Error connecting with geohash:', err);
@@ -171,7 +203,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
       socket.disconnect();
       connectedRef.current = false;
     };
-  }, [currentChatId, setMessages, setChats,connectWithGeo]);
+  }, [currentChatId, setMessages, setChats, connectWithGeo]);
 
   return (
     <SocketContext.Provider value={socket}>

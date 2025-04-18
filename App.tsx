@@ -14,14 +14,14 @@ import InAppNotification from './components/inAppNotification';
 import { getDBConnection, createTables } from './config/database';
 import { ChatProvider } from './context/chatContext';
 import { useChatContext } from './context/chatContext';
-import { getAllChatsFromSQLite, incrementUnreadCount } from './helper/databaseHelper';
+import { getAllChatsFromSQLite, incrementUnreadCount,deleteMessage } from './helper/databaseHelper';
 import { Buffer } from 'buffer';
 global.Buffer = Buffer;
 
 
 
 const App = () => {
-  const { setChats } = useChatContext();
+  const { setChats,currentChatId } = useChatContext();
   const navigationRef = useNavigationContainerRef<rootStackParamList>(); // Create a typed navigation ref
   interface NotificationData {
     title: string;
@@ -117,29 +117,50 @@ const App = () => {
   
 
   useEffect(() => {
-    // Handle notifications when the app is in the foreground
     const unsubscribe = messaging().onMessage(async remoteMessage => {
       console.log('📩 Received in foreground:', remoteMessage);
+  
       if (remoteMessage.notification) {
         const purpose = remoteMessage.data?.purpose;
+  
+        // 🚫 Do NOT show notification if already in this chat
         if (purpose === 'dm' && remoteMessage.data) {
+          if (remoteMessage.data.customKey === currentChatId) {
+            console.log('🛑 Same chat — no notification shown');
+            return; // Exit early
+          }
+  
+          // ✅ Show custom notification only if not same chat
           setNotificationData({
             title: remoteMessage.notification.title ?? 'No Title',
             body: remoteMessage.notification.body ?? 'No Body',
             chatId: remoteMessage.data.customKey ?? '',
             sender: remoteMessage.data.sender ?? '',
           });
-        } else {
-          const title = remoteMessage.notification.title || 'Notification';
-          const body = remoteMessage.notification.body || 'You have a new message.';
-          Alert.alert(title, body);
+          return;
+        }else if (purpose === 'delete') {
+          // Handle delete notification
+          const messageId = remoteMessage.data?.customKey;
+          if (messageId) {
+            await deleteMessage(messageId);
+            console.log('Message deleted:', messageId);
+          } else {
+            console.log('No message ID provided for deletion');
+          }
+          
+          return;
         }
+  
+        // ✅ Handle other notifications
+        const title = remoteMessage.notification.title || 'Notification';
+        const body = remoteMessage.notification.body || 'You have a new message.';
+        Alert.alert(title, body);
       }
     });
-    return () => {
-      unsubscribe();
-    };
-  }, []);
+  
+    return () => unsubscribe();
+  }, [currentChatId]);
+  
     
 
   const handleNotificationPress = () => {

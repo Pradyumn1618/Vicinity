@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
-import { getFirestore, collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, deleteDoc, Timestamp } from '@react-native-firebase/firestore';
+import { getFirestore, collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, deleteDoc, Timestamp, getDocs } from '@react-native-firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 // import socket from '../config/socket';
@@ -11,14 +11,15 @@ import FastImage from 'react-native-fast-image'; // For better image and GIF sup
 
 import { RouteProp } from '@react-navigation/native';
 import { Modal } from 'react-native';
-import { sendDMNotification } from '../helper/sendNotification';
+import { clearNotification, sendDeleteNotification, sendDMNotification } from '../helper/sendNotification';
 import useReceiverStatus from '../helper/receiverStatus';
 import { useSocket } from '../helper/socketProvider';
 import { useChatContext } from '../context/chatContext';
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp } from '../helper/databaseHelper';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages,deleteMessage } from '../helper/databaseHelper';
 import * as Keychain from 'react-native-keychain';
 import { decryptMessage, generateSharedSecret, encryptMessage } from '../helper/cryptoUtils';
+// import { set } from 'date-fns';
 // import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
 // import sodium from 'libsodium-wrappers';
 
@@ -62,6 +63,9 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [unreadTimestamp, setUnreadTimestamp] = useState<number | null>(null);
   const [unreadIndex, setUnreadIndex] = useState<number | null>(null);
+  const receiverDetailsRef = useRef(receiverDetails);
+
+
 
   // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   // const [initialScrollDone, setInitialScrollDone] = useState(false);
@@ -126,6 +130,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
             ...userDoc.data(),
           }));
         }
+        receiverDetailsRef.current = userDoc.data();
       } catch (error) {
         console.error('Failed to fetch receiver details:', error);
       }
@@ -177,65 +182,31 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     fetchPublicKey();
   }, [db, currentUserId]);
 
+  useLayoutEffect(() => {
+    setCurrentChatId(chatId);
+    resetUnreadCount(chatId);
+    resetUnreadTimestamp(chatId);
+  }, [chatId, setCurrentChatId]);
+  
 
-
-  // Fetch messages from Firestore
-  // useEffect(() => {
-  //   setCurrentChatId(chatId);
-  //   setChats((prevChats) => {
-  //       return prevChats.map((chat) => {
-  //         if (chat.id === chatId) {
-  //           return {
-  //             ...chat,
-  //             unreadCount: 0,
-  //           };
-  //         }
-  //         return chat;
-  //       });
-  //     });
-  //   const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
-  //   const messagesRef = collection(db, 'chats', chatId, 'messages');
-  //   const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
-
-  //   const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
-  //     const fetchedMessages: Message[] = snapshot.docs.map((doc) => {
-  //       const data = doc.data();
-  //       return {
-  //         id: doc.id,
-  //         text: data.text,
-  //         sender: data.sender,
-  //         timestamp: data.timestamp instanceof Timestamp
-  //           ? data.timestamp.toDate().getTime()
-  //           : typeof data.timestamp === 'number'
-  //             ? data.timestamp
-  //             : Date.now(),
-  //         media: data.media || null,
-  //         replyTo: data.replyTo || null,
-  //         delivered: data.delivered || false,
-  //         seen: data.seen || false,
-  //       };
-  //     });
-  //     setMessages(fetchedMessages);
-
-
-  //     // console.log(fetchedMessages);
-  //   });
-
-  //   return () => unsubscribe(); // Cleanup listener on unmount
-  // }, [chatId, db, setMessages, setCurrentChatId,setChats]);
 
   useEffect(() => {
-    let unsubscribe: () => void;
+    let unsubscribe: () => void = () => { };
+    const fetchCachedMessages = async () => {
+      const cachedMessages = await getMessages(chatId);
+      if (cachedMessages) {
+        setMessages(cachedMessages);
+      }
+    };
+    fetchCachedMessages();
 
     const init = async () => {
-      setCurrentChatId(chatId);
-      resetUnreadCount(chatId);
-      resetUnreadTimestamp(chatId);
       setChats((prevChats) =>
         prevChats.map((chat) =>
           chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
         )
       );
+      if (!receiverDetailsRef) return;
 
       // 1. Get user's private key from Keychain
       const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
@@ -245,86 +216,157 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       }
 
       const myPrivateKey = Buffer.from(existingKey.password, 'hex');
-      // console.log("Here4",existingKey);
       console.log(myPrivateKey);
 
       const messagesRef = collection(db, 'chats', chatId, 'messages');
       const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
 
+      // Fetch messages once using getDocs
+      const snapshot = await getDocs(messagesQuery);
+      const decryptedMessages: Message[] = [];
 
-      unsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
-        const decryptedMessages: Message[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data();
+        console.log('data', data);
 
-        for (const d of snapshot.docs) {
-          const data = d.data();
-          console.log("data", data);
+        // If encrypted
+        if (data.text && data.nonce && data.senderPubKey) {
+          try {
+            const senderPubKey = Buffer.from(data.senderPubKey, 'hex');
+            const nonce = Buffer.from(data.nonce, 'hex');
+            const ciphertext = Buffer.from(data.text, 'hex');
+            let medianonce = null;
+            if (data.medianonce) {
+              medianonce = Buffer.from(data.medianonce, 'hex');
+            }
+            let media = null;
+            if (data.media) {
+              media = Buffer.from(data.media, 'hex');
+            }
+            let decrypted = null;
+            let decryptedMedia = null;
+            if (data.sender === currentUserId) {
+              decrypted = decryptMessage(
+                ciphertext.toString('hex'),
+                nonce.toString('hex'),
+                myPrivateKey.toString('hex'),
+                receiverDetailsRef.current.publicKey.toString('hex')
+              );
 
-          // If encrypted
-          if (data.text && data.nonce && data.senderPubKey) {
-            try {
-              const senderPubKey = Buffer.from(data.senderPubKey, 'hex');
-              const nonce = Buffer.from(data.nonce, 'hex');
-              const ciphertext = Buffer.from(data.text, 'hex');
-              let medianonce = null;
-              if (data.medianonce) {
-                medianonce = Buffer.from(data.medianonce, 'hex');
-              }
-              let media = null;
-              if (data.media) {
-                media = Buffer.from(data.media, 'hex');
-              }
+              decryptedMedia =
+                media && medianonce
+                  ? decryptMessage(
+                    media.toString('hex'),
+                    medianonce.toString('hex'),
+                    myPrivateKey.toString('hex'),
+                    receiverDetailsRef.current.publicKey.toString('hex')
+                  )
+                  : null;
+              console.log('Decrypted message:', decrypted);
+            } else {
+              decrypted = decryptMessage(
+                ciphertext.toString('hex'),
+                nonce.toString('hex'),
+                myPrivateKey.toString('hex'),
+                senderPubKey.toString('hex')
+              );
+              decryptedMedia =
+                media && medianonce
+                  ? decryptMessage(
+                    media.toString('hex'),
+                    medianonce.toString('hex'),
+                    myPrivateKey.toString('hex'),
+                    senderPubKey.toString('hex')
+                  )
+                  : null;
+              console.log('Decrypted message:', decrypted);
+            }
 
-              const decrypted = decryptMessage(ciphertext.toString('hex'), nonce.toString('hex'), myPrivateKey.toString('hex'), senderPubKey.toString('hex'));
-              const decryptedMedia = media && medianonce ? decryptMessage(media.toString('hex'), medianonce.toString('hex'), myPrivateKey.toString('hex'), senderPubKey.toString('hex')) : null;
-
-              decryptedMessages.push({
-                id: d.id,
-                text: decrypted,
-                sender: data.sender,
-                timestamp: data.timestamp instanceof Timestamp
+            const decryptedMessage = {
+              id: d.id,
+              text: decrypted,
+              sender: data.sender,
+              timestamp:
+                data.timestamp instanceof Timestamp
                   ? data.timestamp.toDate().getTime()
                   : typeof data.timestamp === 'number'
                     ? data.timestamp
                     : Date.now(),
-                media: decryptedMedia || null,
-                replyTo: data.replyTo || null,
-                delivered: data.delivered || false,
-                seen: data.seen || false,
-              });
-            } catch (e) {
-              console.error(`❌ Failed to decrypt message ${d.id}`, e);
+              media: decryptedMedia || null,
+              replyTo: data.replyTo || null,
+              delivered: data.delivered || false,
+              seen: data.seen || false,
             }
-          } else {
-            // Unencrypted fallback
-            console.log("No encrypted messages");
+
             decryptedMessages.push({
-              id: d.id,
-              text: data.text || '',
-              sender: data.sender,
-              timestamp: data.timestamp instanceof Timestamp
+              ...decryptedMessage,
+            });
+
+            insertMessage(decryptedMessage, chatId, receiver);
+          } catch (e) {
+            console.error(`❌ Failed to decrypt message ${d.id}`, e);
+          }
+        } else {
+          // Unencrypted fallback
+          const decryptedMessage = {
+            id: d.id,
+            text: data.text || '',
+            sender: data.sender,
+            timestamp:
+              data.timestamp instanceof Timestamp
                 ? data.timestamp.toDate().getTime()
                 : typeof data.timestamp === 'number'
                   ? data.timestamp
                   : Date.now(),
-              media: data.media || null,
-              replyTo: data.replyTo || null,
-              delivered: data.delivered || false,
-              seen: data.seen || false,
-            });
-          }
-        }
+            media: data.media || null,
+            replyTo: data.replyTo || null,
+            delivered: data.delivered || false,
+            seen: data.seen || false,
+          };
 
-        setMessages(decryptedMessages);
-        console.log(decryptedMessages);
+          decryptedMessages.push({
+            ...decryptedMessage,
+          });
+          insertMessage(decryptedMessage, chatId, receiver);
+        }
       });
+      setMessages((prevMessages) => {
+        const updatedMessages: Message[] = [];
+        const newMessageIds = decryptedMessages.map((msg) => msg.id);
+
+        // Step 1: Keep only those that still exist in Firestore
+        prevMessages.forEach((oldMsg) => {
+          if (newMessageIds.includes(oldMsg.id)) {
+            const freshVersion = decryptedMessages.find((m) => m.id === oldMsg.id);
+            // Update only if different
+            if (freshVersion && JSON.stringify(freshVersion) !== JSON.stringify(oldMsg)) {
+              updatedMessages.push(freshVersion);
+            } else {
+              updatedMessages.push(oldMsg); // Keep existing
+            }
+          }
+        });
+
+        // Step 2: Add new ones that didn’t exist before
+        decryptedMessages.forEach((newMsg) => {
+          if (!prevMessages.some((m) => m.id === newMsg.id)) {
+            updatedMessages.push(newMsg);
+          }
+        });
+
+        return updatedMessages;
+      });
+
+      console.log(decryptedMessages);
     };
 
     init();
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      unsubscribe();
     };
-  }, [chatId, db, setMessages, setCurrentChatId, setChats, auth]);
+  }, [chatId, db, setMessages, setCurrentChatId, setChats, auth, currentUserId, receiver]);
+  //let the error be here
 
 
   const handleSend = async () => {
@@ -363,7 +405,31 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         return;
       }
     }
-    const sharedSecret = generateSharedSecret(receiverDetails?.publicKey, publicKey ?? '');
+    const messageId = chatId + Date.now().toString();
+
+    const messageToDisplay = {
+      id: messageId,
+      text: inputText,
+      sender: currentUserId,
+      timestamp: Date.now(),
+      media: media || null,
+      replyTo: replyTo || null,
+      delivered: false,
+      seen: false,
+    };
+    setMessages(prevMessages => [...prevMessages, { ...messageToDisplay }]);
+    insertMessage(messageToDisplay, chatId, receiver);
+
+    const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
+    if (!existingKey) {
+      console.log('Private key not found in secure storage');
+      return;
+    }
+    const myPrivateKey = Buffer.from(existingKey.password, 'hex');
+
+    const sharedSecret = generateSharedSecret(myPrivateKey.toString('hex'), receiverDetails?.publicKey);
+
+    console.log('sharedSecret:', sharedSecret);
     const { cipherText, nonce } = encryptMessage(inputText, sharedSecret);
     let medianonce = null;
     let mediaCipher = null;
@@ -372,7 +438,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       mediaCipher = mediaCipherText;
       medianonce = mediaNonce;
     }
-    const messageId = chatId + Date.now().toString();
     const newMessage = {
       id: messageId, // unique id for the message
       sender: currentUserId,
@@ -387,8 +452,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       senderPubKey: publicKey,
       medianonce: medianonce,
     };
-    console.log('newMessage:', newMessage);
-    // setMessages(prevMessages => [...prevMessages, { ...newMessage }]);
     try {
 
       // Add the message to Firestore
@@ -407,12 +470,17 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     } catch (error) {
       console.error('Error sending message:', error);
     }
+    setMessages((prevMessages) =>
+      prevMessages.map((message) =>
+        message.id === messageId ? { ...message, delivered: true } : message
+      )
+    );
 
     setInputText('');
     setReplyTo(null);
     // setMedia(null); // Clear media after sending
     setUploadProgress(0);
-    sendDMNotification([receiverDetails?.fcmToken], currentUserId, newMessage.text, chatId);
+    sendDMNotification([receiverDetails?.fcmToken], currentUserId, inputText, chatId,messageId);
     let nmessage = { ...newMessage, chatId: chatId };
     socket.emit('send-dm', { message: nmessage });
   };
@@ -473,6 +541,9 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       // Remove the message from the local state
       setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
 
+      await deleteMessage(messageId);
+      socket.emit('message-deleted', { messageId: messageId, chatId: chatId,receiver: receiver });
+
       // Reference to the message in Firestore
       const messageRef = doc(db, 'chats', chatId, 'messages', messageId);
       const messageDoc = await getDoc(messageRef);
@@ -501,6 +572,8 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       } else {
         console.error('Message does not exist in Firestore');
       }
+      sendDeleteNotification([receiverDetails?.fcmToken], messageId);
+      clearNotification([receiverDetails?.fcmToken], messageId);
     } catch (error) {
       console.error('Error deleting message or media:', error);
     }
@@ -544,14 +617,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       </TouchableOpacity>
     );
   };
-
-  // const scrollToBottom = () => {
-  //   InteractionManager.runAfterInteractions(() => {
-  //     requestAnimationFrame(() => {
-  //       flatListRef.current?.scrollToEnd({ animated: true });
-  //     });
-  //   });
-  // };
 
 
   const renderMessage = ({ item, index }: { item: Message, index: number }) => {

@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers';
 import auth from '@react-native-firebase/auth';
-import { getFirestore,setDoc,doc } from '@react-native-firebase/firestore';
+import { getFirestore, setDoc, doc, getDoc } from '@react-native-firebase/firestore';
 import * as Keychain from 'react-native-keychain';
 
 
@@ -17,8 +17,8 @@ export const generateSharedSecret = (privateKey:string, publicKey:string) => {
         throw new Error('Private key or public key is missing');
     }
   return sodium.crypto_scalarmult(
-    sodium.from_base64(privateKey),
-    sodium.from_base64(publicKey)
+    sodium.from_hex(privateKey),
+    sodium.from_hex(publicKey)
   );
 };
 
@@ -89,6 +89,7 @@ export const decryptMessage = (
 ): string => {
     // Derive the shared secret using ECDH (from sender's public key and receiver's private key)
     const sharedSecret = generateSharedSecret(privateKey, senderPublicKey);
+    console.log('Shared Secret:', sodium.to_hex(sharedSecret));
 
     // Derive an AES key from the shared secret (first 32 bytes)
     const aesKey = sharedSecret.slice(0, 32);
@@ -115,8 +116,22 @@ export const generateAndStoreKeyPairOnce = async (userId:string) => {
 
   // 1. Check if key already exists
   const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
+  const db = getFirestore();
+  const userRef = doc(db, 'users', userId);
+  const docSnap = await getDoc(userRef);
+  let publicKeyExists = false;
+    if (docSnap.exists) {
+        const data = docSnap.data();
+        const publicKey = data?.publicKey;
+        if (publicKey) {
+            console.log('Public key already exists in Firestore:', publicKey);
+            publicKeyExists = true;
+        } else {
+            console.log('No public key found in Firestore');
+        }
+    }
 
-  if (existingKey && existingKey.username === userId) {
+  if (existingKey && existingKey.username === userId && publicKeyExists) {
     console.log('✅ Private key already exists. Skipping generation.');
     return {
       privateKeyHex: existingKey.password,

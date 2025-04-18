@@ -22,7 +22,7 @@ const sendNotificationAsync = async (fcmTokens: string[]) => {
     }
   };
 
-export const sendDMNotification = async (fcmTokens: string[], senderId: string, message: string,chatId:string) => {
+export const sendDMNotification = async (fcmTokens: string[], senderId: string, message: string,chatId:string,messageId:string) => {
     if (fcmTokens.length === 0) return;
     const db = getFirestore();
     const senderRef = doc(db,'users',senderId);
@@ -38,6 +38,7 @@ export const sendDMNotification = async (fcmTokens: string[], senderId: string, 
         token: fcmTokens, // pass array
         title: `${senderName} sent you a message`,
         body: message,
+        tag: messageId,
         data: {
           purpose: 'dm',
           customKey: chatId,
@@ -50,4 +51,40 @@ export const sendDMNotification = async (fcmTokens: string[], senderId: string, 
     }
   }
 
+  export const sendDeleteNotification = async (fcmTokens: string[], messageId:string) => {
+    if (fcmTokens.length === 0) return;
+    try {
+      const res = await sendNotification({
+        token: fcmTokens, // pass array
+        title: "Message Deleted",
+        body: "A message has been deleted.",
+        data: {
+          purpose: 'delete',
+          customKey: messageId,
+        }
+      });
+      console.log("Notification sent:", res.data);
+    } catch (err) {
+      console.error("Error sending notification:", err);
+    }
+  }
+
+  export const clearNotification = async (fcmTokens: string[], messageId:string) => {
+    if (fcmTokens.length === 0) return;
+    try {
+      const res = await sendNotification({
+        token: fcmTokens, // pass array
+        title: '',
+        body: '',
+        tag: messageId,
+        data: {
+          purpose: 'clear-notification',
+          customKey: messageId,
+        }
+      });
+      console.log("Notification sent:", res.data);
+    } catch (err) {
+      console.error("Error sending notification:", err);
+    }
+  }
 export default sendNotificationAsync;
