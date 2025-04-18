@@ -1,138 +1,24 @@
-// /**
-//  * Sample React Native App
-//  * https://github.com/facebook/react-native
-//  *
-//  * @format
-//  */
-
-// import React from 'react';
-// import type {PropsWithChildren} from 'react';
-// import {
-//   SafeAreaView,
-//   ScrollView,
-//   StatusBar,
-//   StyleSheet,
-//   Text,
-//   useColorScheme,
-//   View,
-// } from 'react-native';
-
-// import {
-//   Colors,
-//   DebugInstructions,
-//   Header,
-//   LearnMoreLinks,
-//   ReloadInstructions,
-// } from 'react-native/Libraries/NewAppScreen';
-
-// type SectionProps = PropsWithChildren<{
-//   title: string;
-// }>;
-
-// function Section({children, title}: SectionProps): React.JSX.Element {
-//   const isDarkMode = useColorScheme() === 'dark';
-//   return (
-//     <View style={styles.sectionContainer}>
-//       <Text
-//         style={[
-//           styles.sectionTitle,
-//           {
-//             color: isDarkMode ? Colors.white : Colors.black,
-//           },
-//         ]}>
-//         {title}
-//       </Text>
-//       <Text
-//         style={[
-//           styles.sectionDescription,
-//           {
-//             color: isDarkMode ? Colors.light : Colors.dark,
-//           },
-//         ]}>
-//         {children}
-//       </Text>
-//     </View>
-//   );
-// }
-
-// function App(): React.JSX.Element {
-//   const isDarkMode = useColorScheme() === 'dark';
-
-//   const backgroundStyle = {
-//     backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
-//   };
-
-//   return (
-//     <SafeAreaView style={backgroundStyle}>
-//       <StatusBar
-//         barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-//         backgroundColor={backgroundStyle.backgroundColor}
-//       />
-//       <ScrollView
-//         contentInsetAdjustmentBehavior="automatic"
-//         style={backgroundStyle}>
-//         <Header />
-//         <View
-//           style={{
-//             backgroundColor: isDarkMode ? Colors.black : Colors.white,
-//           }}>
-//           <Section title="Step One">
-//             Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-//             screen and then come back to see your edits.
-//           </Section>
-//           <Section title="See Your Changes">
-//             <ReloadInstructions />
-//           </Section>
-//           <Section title="Debug">
-//             <DebugInstructions />
-//           </Section>
-//           <Section title="Learn More">
-//             Read the docs to discover what to do next:
-//           </Section>
-//           <LearnMoreLinks />
-//         </View>
-//       </ScrollView>
-//     </SafeAreaView>
-//   );
-// }
-
-// const styles = StyleSheet.create({
-//   sectionContainer: {
-//     marginTop: 32,
-//     paddingHorizontal: 24,
-//   },
-//   sectionTitle: {
-//     fontSize: 24,
-//     fontWeight: '600',
-//   },
-//   sectionDescription: {
-//     marginTop: 8,
-//     fontSize: 18,
-//     fontWeight: '400',
-//   },
-//   highlight: {
-//     fontWeight: '700',
-//   },
-// });
-
-// export default App;
 
 import './global.css';
 // filepath: /home/pradyumn/SWE/Vicinity/App.tsx
 import React, { useState } from 'react';
 import Navigation from './navigation';
 import { useEffect } from 'react';
-import { Alert } from 'react-native';
-import messaging from '@react-native-firebase/messaging';
+import { Alert, AppState } from 'react-native';
+import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import { SocketProvider } from './helper/socketProvider';
 import auth from '@react-native-firebase/auth';
 import { useNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
 import { rootStackParamList } from './helper/types';
 import InAppNotification from './components/inAppNotification';
 import { getDBConnection, createTables } from './config/database';
+import { ChatProvider } from './context/chatContext';
+import { useChatContext } from './context/chatContext';
+import { getAllChatsFromSQLite, incrementUnreadCount } from './helper/databaseHelper';
 
 
 const App = () => {
+  const { setChats } = useChatContext();
   const navigationRef = useNavigationContainerRef<rootStackParamList>(); // Create a typed navigation ref
   interface NotificationData {
     title: string;
@@ -149,31 +35,79 @@ const App = () => {
       const db = await getDBConnection();
       await createTables(db);
     };
-  
+
     setupDatabase();
   }, []);
-  
+
 
   useEffect(() => {
+
+    const handleNotification = async (remoteMessage: FirebaseMessagingTypes.RemoteMessage) => {
+      // Only increment unread count if it's a DM
+      if (remoteMessage.notification && remoteMessage.data?.purpose === 'dm') {
+        const chatId = remoteMessage.data.customKey ?? '';
+        await incrementUnreadCount(chatId); // Increment unread count in database
+  
+        // Optionally navigate to the chat screen, if the app is in the foreground
+        // const user = auth().currentUser;
+        // if (user && navigationRef.isReady()) {
+        //   const sender = remoteMessage.data.sender ?? '';
+        //   navigationRef.navigate('ChatScreen', { chatId, sender });
+        // }
+      }
+    };
     // Handle notifications when the app is opened from the background
-    const unsubscribe = messaging().onNotificationOpenedApp(remoteMessage => {
+    const unsubscribeOpenedApp = messaging().onNotificationOpenedApp(async (remoteMessage) => {
       console.log('Notification caused app to open from background state:', remoteMessage.notification);
-      if (remoteMessage.notification) {
-        const purpose = remoteMessage.data?.purpose;
-        if (purpose === 'dm' && remoteMessage.data) {
-          const chatId = remoteMessage.data.customKey ?? '';
-          const sender = remoteMessage.data.sender ?? '';
-          const user = auth().currentUser;
-          if (user) {
-            // Navigate to ChatScreen
-            navigationRef.navigate('ChatScreen', { chatId, sender });
-          }
+      await handleNotification(remoteMessage);
+      const user = auth().currentUser;
+        if (user && navigationRef.isReady()) {
+          const sender = remoteMessage.data?.sender ?? '';
+          const chatId = remoteMessage.data?.customKey ?? '';
+          console.log(chatId,sender);
+          navigationRef.navigate('ChatScreen', { chatId, receiver: sender });
         }
+    });
+  
+  
+    
+    // 3. Handle the app being opened from the killed state (cold start)
+    const checkInitialNotification = async () => {
+      const remoteMessage = await messaging().getInitialNotification();
+      if (remoteMessage) {
+        console.log('App was opened from a notification:', remoteMessage.notification);
+        await handleNotification(remoteMessage);
+      }
+    };
+    messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+      console.log('Background notification received:', remoteMessage.notification);
+      await handleNotification(remoteMessage);
+    });
+  
+    // Check initial notification if the app was opened from a killed state
+    checkInitialNotification();
+
+    const appStateListener = AppState.addEventListener('change', async (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        // The app has come to the foreground
+        // You can optionally call a function to sync data here if needed
+        const userId = auth().currentUser?.uid;
+        if(userId){
+        const chats = await getAllChatsFromSQLite(userId);
+        setChats(chats);
+        }
+        console.log('App has come to the foreground');
       }
     });
 
-    return unsubscribe;
-  }, [navigationRef]);
+
+    return () => {
+      unsubscribeOpenedApp();
+      appStateListener.remove();
+      
+    };
+  }, [navigationRef,setChats]);
+  
 
   useEffect(() => {
     // Handle notifications when the app is in the foreground
@@ -195,9 +129,11 @@ const App = () => {
         }
       }
     });
-
-    return unsubscribe;
-  }, [navigationRef]);
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+    
 
   const handleNotificationPress = () => {
     if (notificationData?.chatId && notificationData?.sender) {
@@ -219,9 +155,11 @@ const App = () => {
         />
       )}
       <NavigationContainer ref={navigationRef}>
-        <SocketProvider>
-          <Navigation />
-        </SocketProvider>
+        <ChatProvider>
+          <SocketProvider>
+            <Navigation />
+          </SocketProvider>
+        </ChatProvider>
       </NavigationContainer>
     </>
   )

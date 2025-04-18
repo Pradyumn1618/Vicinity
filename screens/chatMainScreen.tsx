@@ -1,5 +1,5 @@
 // Make sure you're using modular imports
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, FlatList, Image } from 'react-native';
 // import  Ionicons  from  'react-native-vector-icons/Ionicons';
 import { getFirestore, collection, doc, getDoc, getDocs, query, where, onSnapshot } from '@react-native-firebase/firestore';
@@ -11,7 +11,10 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Modal from 'react-native-modal';
 // import { getDatabase, ref, onValue } from '@react-native-firebase/database';
 import useNearbyOnlineUsers from '../helper/onlineUsers';
-
+import { insertOrUpdateChatInSQLite, getAllChatsFromSQLite, resetUnreadCount } from '../helper/databaseHelper';
+import { useChatContext } from '../context/chatContext';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback } from 'react';
 
 
 
@@ -25,24 +28,17 @@ const db = getFirestore();
 const auth = getAuth();
 
 export default function InboxScreen({ navigation }: chatMainScreenProps) {
+  const {setCurrentChatId} = useChatContext();
   const [tab, setTab] = useState('messages'); // Active tab
   const [searchText, setSearchText] = useState(''); // Search input text
   const onlineUsers = useNearbyOnlineUsers(); // Online users
-  const [chats, setChats] = useState<Message[]>([]); // Direct messages
+  const {chats, setChats} = useChatContext(); // Direct messages
   const [groups, setGroups] = useState<Group[]>([]); // Groups
   const [isModalVisible, setIsModalVisible] = useState(false); // Modal visibility
   const [searchResults, setSearchResults] = useState<{ id: string; username: string; photoURL?: string }[]>([]); // Search results
 
 
-  interface Message {
-    id: string;
-    time: string;
-    message?: string;
-    participants: string[];
-    photoURL?: string;
-    username?: string;
-  }
-
+  
   interface Group {
     id: string;
     name: string;
@@ -52,22 +48,33 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
     lastSender?: string;
   }
 
-  useEffect(() => {
-    // Fetch direct messages
+  
+useFocusEffect(
+  useCallback(() => {
+    setCurrentChatId('');
+    let unsubscribeFirestore = () => {};
+
     const fetchChats = async () => {
       const userId = auth.currentUser?.uid;
       if (!userId) return;
 
+      // STEP 1: Fetch from SQLite immediately
+      const localChats = await getAllChatsFromSQLite(userId);
+      console.log('Local chats:', localChats);
+      setChats(localChats); // show cached chats first
+
+      // STEP 2: Start listening to Firestore updates
       const chatsRef = collection(db, 'chats');
       const chatsQuery = query(chatsRef, where('participants', 'array-contains', userId));
 
-      const unsubscribe = onSnapshot(chatsQuery, async (snapshot) => {
+      unsubscribeFirestore = onSnapshot(chatsQuery, async (snapshot) => {
+        const localChatMap = new Map(localChats.map((chat) => [chat.id, chat]));
+
         const chatList = await Promise.all(
           snapshot.docs.map(async (d) => {
             const data = d.data();
             const otherParticipant = getOtherParticipant(data.participants);
 
-            // Fetch the profile picture of the other participant
             let photoURL = null;
             let username = null;
             if (otherParticipant) {
@@ -79,40 +86,64 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
               }
             }
 
-            return {
+            const existing = localChatMap.get(d.id);
+
+            await insertOrUpdateChatInSQLite({
               id: d.id,
-              time: data.time || new Date().toISOString(),
-              message: data.message || '',
               participants: data.participants || [],
               photoURL,
               username,
+            });
+
+            return {
+              id: d.id,
+              participants: data.participants || [],
+              photoURL,
+              username,
+              unreadCount: existing?.unreadCount || 0,
             };
           })
         );
+
+        console.log('Fetched chats:', chatList);
         setChats(chatList);
       });
-
-      return unsubscribe;
     };
 
     fetchChats();
-  }, []);
 
-  useEffect(() => {
-    // Fetch groups
+    return () => {
+      if (unsubscribeFirestore) unsubscribeFirestore();
+    };
+  }, [setCurrentChatId, setChats])
+);
+
+
+useFocusEffect(
+  useCallback(() => {
+    let unsubscribeFirestore = () => {};
+
     const fetchUserGroups = async () => {
       const userId = auth.currentUser?.uid;
       if (!userId) return;
+
       const userRef = doc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
       const userData = userSnap.data();
-      if (!userData || !userData.groups) {
+
+      if (!userData || !userData.groups || userData.groups.length === 0) {
         console.error('❌ User data or groups are missing');
+        setGroups([]); // Optionally clear group list if user has none
         return;
       }
+
       const groupsRef = collection(db, 'groups');
-      const groupsQuery = query(groupsRef, where(firestore.FieldPath.documentId(), 'in', userData.groups));
-      const unsubscribe = onSnapshot(groupsQuery, async (snapshot) => {
+      const groupsQuery = query(
+        groupsRef,
+        where(firestore.FieldPath.documentId(), 'in', userData.groups)
+      );
+
+      unsubscribeFirestore = onSnapshot(groupsQuery, async (snapshot) => {
         const groupList = await Promise.all(
           snapshot.docs.map(async (d) => {
             const groupData = d.data();
@@ -128,14 +159,19 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
             };
           })
         );
+
         setGroups(groupList);
       });
-
-      return unsubscribe;
     };
 
     fetchUserGroups();
-  }, []);
+
+    return () => {
+      if (unsubscribeFirestore) unsubscribeFirestore();
+    };
+  }, [setGroups])
+);
+
 
   const getOtherParticipant = (participants: string[]): string | undefined => {
     const userId = auth.currentUser?.uid;
@@ -178,7 +214,10 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
 
   const handleStartChat = (user: { id: string; username: string; photoURL?: string }) => {
     setIsModalVisible(false);
-    navigation.navigate('ChatScreen', { chatId: generateChatId(user.id), receiver: user.id });
+    setSearchText('');
+    const chatId = generateChatId(user.id);
+    resetUnreadCount(chatId);
+    navigation.navigate('ChatScreen', { chatId: chatId, receiver: user.id });
   };
 
   return (
@@ -299,9 +338,19 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
                 />
                 <View className="flex-1">
                   <Text className="text-white font-semibold">{item.username}</Text>
-                  <Text className="text-gray-400 text-sm mt-1">{item.message}</Text>
+                  {/* <Text className="text-gray-400 text-sm mt-1">{item.message}</Text> */}
                 </View>
-                <Text className="text-gray-400 text-xs">{new Date(item.time).toLocaleTimeString()}</Text>
+                <View className="flex-row items-center">
+                  {item.unreadCount && item.unreadCount > 0 && (
+                    <View
+                      className="bg-blue-500 rounded-full px-2 py-1"
+                      style={{ backgroundColor: '#4F46E5', borderRadius: 9999 }}
+                    >
+                      <Text className="text-white text-xs">{item.unreadCount}</Text>
+                    </View>
+                  )}
+                </View>
+                {/* <Text className="text-gray-400 text-xs">{new Date(item.time).toLocaleTimeString()}</Text> */}
               </TouchableOpacity>
             );
           }}

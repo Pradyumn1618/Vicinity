@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform,Alert,StyleSheet, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
-import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc,getDoc,deleteDoc } from '@react-native-firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL,deleteObject } from '@react-native-firebase/storage';
+import { getFirestore, collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, deleteDoc, Timestamp } from '@react-native-firebase/firestore';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 // import socket from '../config/socket';
 import Video from 'react-native-video'; // For video rendering
@@ -14,8 +14,10 @@ import { Modal } from 'react-native';
 import { sendDMNotification } from '../helper/sendNotification';
 import useReceiverStatus from '../helper/receiverStatus';
 import { useSocket } from '../helper/socketProvider';
-import { insertMessage,incrementUnreadCount } from '../helper/databaseHelper';
-// import MediaTest from './test';
+import { useChatContext } from '../context/chatContext';
+
+import { resetUnreadCount } from '../helper/databaseHelper';
+
 
 type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
 
@@ -25,13 +27,19 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   interface Message {
     id: string;
     text: string;
-    senderId: string;
-    timestamp: string;
+    sender: string;
+    timestamp: number;
     media?: string | null;
     replyTo?: { text: string; id: string } | null;
+    delivered?: boolean;
+    seen?: boolean;
   }
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { messages, setMessages } = useChatContext();
+  const { setCurrentChatId } = useChatContext();
+  const { setChats } = useChatContext();
+  resetUnreadCount(chatId);
+  
   const [inputText, setInputText] = useState('');
   const [replyTo, setReplyTo] = useState<{ text: string; id: string } | null>(null);
   // const [media, setMedia] = useState<string | null>(null);
@@ -41,31 +49,11 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [selectedMedia, setSelectedMedia] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [attachedMedia,setAttachedMedia] = useState<{uri:string,filename:string,type:string}|null>(null);
+  const [attachedMedia, setAttachedMedia] = useState<{ uri: string, filename: string, type: string } | null>(null);
   const [pressedFileExt, setPressedFileExt] = useState<string | null>(null);
   const [receiverDetails, setReceiverDetails] = useState<any>(null);
   // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   // const [initialScrollDone, setInitialScrollDone] = useState(false);
-  useEffect(() => {
-    socket.on('private_message', (msg) => {
-      // 1. Save to local DB
-      insertMessage(msg);
-  
-      // 2. Show in chat screen if open
-      if (chatId === msg.chatId) {
-        setMessages(prev => [...prev, msg]);
-      } else {
-        // 3. Update unread badge
-        incrementUnreadCount(msg.chatId);
-      }
-    });
-  
-    return () => {
-      socket.off('private_message');
-    };
-  }, [socket,chatId]);
-  
-
 
   const handleMediaPress = (uri: string) => {
     // Check if the media is a video
@@ -81,11 +69,65 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const db = getFirestore();
   const storage = getStorage();
 
+  useEffect(() => {
+    socket.emit('get_status', { userId: receiver });
+    socket.on('status_response', (data: { status: string; lastSeen: string }) => {
+      const formattedLastSeen = data.lastSeen
+        ? new Date(data.lastSeen).toLocaleString()
+        : null;
 
+      setReceiverDetails((prevDetails: any) => ({
+        ...prevDetails,
+        ...(data.status === 'online'
+          ? { status: data.status, lastSeen: null }
+          : { lastSeen: formattedLastSeen, status: null }),
+      }));
+    }
+    );
+    return () => {
+      socket.off('status_response');
+    };
+  }, [socket, receiver]);
+
+  
   useReceiverStatus(receiver, setReceiverDetails);
+  useEffect(() => {
+    const fetchReceiverDetails = async () => {
+      if (!receiver) return;
+  
+      try {
+        const userRef = doc(db, 'users', receiver);
+        const userDoc = await getDoc(userRef);
+  
+        if (userDoc.exists) {
+          setReceiverDetails((prev: any) => ({
+            ...prev,
+            ...userDoc.data(),
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to fetch receiver details:', error);
+      }
+    };
+  
+    fetchReceiverDetails();
+  }, [receiver,db]);
+  
 
   // Fetch messages from Firestore
   useEffect(() => {
+    setCurrentChatId(chatId);
+    setChats((prevChats) => {
+        return prevChats.map((chat) => {
+          if (chat.id === chatId) {
+            return {
+              ...chat,
+              unreadCount: 0,
+            };
+          }
+          return chat;
+        });
+      });
     const messagesRef = collection(db, 'chats', chatId, 'messages');
     const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
 
@@ -95,97 +137,101 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         return {
           id: doc.id,
           text: data.text,
-          senderId: data.senderId,
-          timestamp: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          sender: data.sender,
+          timestamp: data.timestamp instanceof Timestamp
+            ? data.timestamp.toDate().getTime()
+            : typeof data.timestamp === 'number'
+              ? data.timestamp
+              : Date.now(),
           media: data.media || null,
           replyTo: data.replyTo || null,
+          delivered: data.delivered || false,
+          seen: data.seen || false,
         };
       });
       setMessages(fetchedMessages);
+      
+      
+      // console.log(fetchedMessages);
     });
 
     return () => unsubscribe(); // Cleanup listener on unmount
-  }, [chatId, db]);
+  }, [chatId, db, setMessages, setCurrentChatId,setChats]);
 
-  // useEffect(() => {
-  //   if (messages.length > 0 && !initialScrollDone) {
-  //     scrollToBottom();
-  //     setInitialScrollDone(true);
-  //   }
-  // }, [messages, initialScrollDone]);
-  
   const handleSend = async () => {
     if (!inputText.trim() && !attachedMedia) return; // Ensure either text or media is present
     if (!currentUserId) return;
+    console.log('currentUserId:', currentUserId);
     let media = null;
-  if (attachedMedia) {
-    try {
-      setUploading(true);
-      const response = await fetch(attachedMedia.uri);
-      const blob = await response.blob();
+    if (attachedMedia) {
+      console.log('attachedMedia:', attachedMedia);
+      try {
+        setUploading(true);
+        const response = await fetch(attachedMedia.uri);
+        const blob = await response.blob();
 
-      const storageRef = ref(storage, `chats/${chatId}/${attachedMedia.filename}`);
-      const uploadTask = uploadBytesResumable(storageRef, blob);
+        const storageRef = ref(storage, `chats/${chatId}/${attachedMedia.filename}`);
+        const uploadTask = uploadBytesResumable(storageRef, blob);
 
-      uploadTask.on('state_changed', (snapshot) => {
-        const progress = snapshot.bytesTransferred / snapshot.totalBytes;
-        setUploadProgress(progress);
-      });
+        uploadTask.on('state_changed', (snapshot) => {
+          const progress = snapshot.bytesTransferred / snapshot.totalBytes;
+          setUploadProgress(progress);
+        });
 
-      await uploadTask;
-      media = await getDownloadURL(storageRef);
-      // setMedia(mediaUrl);
-      setUploading(false);
-      setAttachedMedia(null);
-    } catch (error) {
-      console.error('Upload failed:', error);
-      setUploading(false);
-      // setMedia(null);
-      setAttachedMedia(null);
-      return;
+        await uploadTask;
+        media = await getDownloadURL(storageRef);
+        // setMedia(mediaUrl);
+        setUploading(false);
+        setAttachedMedia(null);
+      } catch (error) {
+        console.error('Upload failed:', error);
+        setUploading(false);
+        // setMedia(null);
+        setAttachedMedia(null);
+        return;
+      }
     }
-  }
 
-    const newMessage: Message = {
-      id: chatId + Date.now().toString(),
+    const messageId = chatId + Date.now().toString();
+    const newMessage = {
+      id: messageId, // unique id for the message
+      sender: currentUserId,
+      receiver: receiver,
       text: inputText,
-      senderId: currentUserId,
-      timestamp: new Date().toISOString(),
+      media: media, // or a URL/string if media is attached
+      timestamp: Date.now(),
       replyTo: replyTo || null,
-      media: media,
+      delivered: false,
+      seen: false,
     };
-
-    // Add the message to Firestore
-    const messagesRef = collection(db, 'chats', chatId, 'messages');
-    await addDoc(messagesRef, {
-      text: newMessage.text,
-      senderId: newMessage.senderId,
-      timestamp: serverTimestamp(),
-      media: newMessage.media,
-      replyTo: replyTo ? { id: replyTo.id, text: replyTo.text } : null,
-    });
-
-    const chatsRef = collection(db, 'chats');
-    const chatDocRef = doc(chatsRef, chatId);
+    console.log('newMessage:', newMessage);
+    setMessages(prevMessages => [...prevMessages, { ...newMessage }]);
     try {
-      await setDoc(chatDocRef, {
-        lastMessage: newMessage.text,
-        lastTimestamp: serverTimestamp(),
-        participants: [currentUserId, receiver],
-      }, { merge: true });
-    } catch (error) {
-      console.error("Error updating chat doc:", error);
-    }
 
+      // Add the message to Firestore
+      const chatsRef = collection(db, 'chats');
+      const chatDocRef = doc(chatsRef, chatId);
+      const chatDoc = await getDoc(chatDocRef); // Check if the document exists
+      if (!chatDoc.exists) {
+        await setDoc(chatDocRef, {
+          participants: [currentUserId, receiver],
+        }, { merge: true });
+      }
+      const messagesRef = doc(db, 'chats', chatId, 'messages', messageId);
+      await setDoc(messagesRef, {
+        ...newMessage,
+      });
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
 
     setInputText('');
     setReplyTo(null);
     // setMedia(null); // Clear media after sending
     setUploadProgress(0);
-    // Scroll to bottom after sending
-    // scrollToBottom();
-    sendDMNotification([receiverDetails?.fcmToken], currentUserId, newMessage.text,chatId);
-    socket.emit('send-dm', { id: chatId, receiver: receiver, message: newMessage });
+    sendDMNotification([receiverDetails?.fcmToken], currentUserId, newMessage.text, chatId);
+    let nmessage = { ...newMessage, chatId: chatId };
+    socket.emit('send-dm', { message: nmessage });
   };
 
   const handleAttachMedia = async () => {
@@ -220,62 +266,62 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     return map;
   }, [messages]);
 
-const handleDelete = (messageId: string): void => {
-  Alert.alert(
-    "Delete Message",
-    "Are you sure you want to delete this message?",
-    [
-      {
-        text: "Cancel",
-        style: "cancel"
-      },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => confirmDelete(messageId)
+  const handleDelete = (messageId: string): void => {
+    Alert.alert(
+      "Delete Message",
+      "Are you sure you want to delete this message?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => confirmDelete(messageId)
+        }
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const confirmDelete = async (messageId: string): Promise<void> => {
+    try {
+      // Remove the message from the local state
+      setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
+
+      // Reference to the message in Firestore
+      const messageRef = doc(db, 'chats', chatId, 'messages', messageId);
+      const messageDoc = await getDoc(messageRef);
+
+      if (messageDoc.exists) {
+        const messageData = messageDoc.data();
+
+        // Check if the message has media
+        if (messageData?.media) {
+          const mediaUrl = messageData.media;
+
+          // Extract the file path from the media URL
+          const filePath = decodeURIComponent(mediaUrl.split('/o/')[1].split('?')[0]);
+
+          // Reference to the file in Firebase Storage
+          const storageRef = ref(storage, filePath);
+
+          // Delete the file from Firebase Storage
+          await deleteObject(storageRef);
+          console.log('Media deleted successfully from storage');
+        }
+
+        // Delete the message from Firestore
+        await deleteDoc(messageRef);
+        console.log('Message deleted successfully from Firestore');
+      } else {
+        console.error('Message does not exist in Firestore');
       }
-    ],
-    { cancelable: true }
-  );
-};
-
-const confirmDelete = async (messageId: string): Promise<void> => {
-  try {
-    // Remove the message from the local state
-    setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
-
-    // Reference to the message in Firestore
-    const messageRef = doc(db, 'chats', chatId, 'messages', messageId);
-    const messageDoc = await getDoc(messageRef);
-
-    if (messageDoc.exists) {
-      const messageData = messageDoc.data();
-
-      // Check if the message has media
-      if (messageData?.media) {
-        const mediaUrl = messageData.media;
-
-        // Extract the file path from the media URL
-        const filePath = decodeURIComponent(mediaUrl.split('/o/')[1].split('?')[0]);
-
-        // Reference to the file in Firebase Storage
-        const storageRef = ref(storage, filePath);
-
-        // Delete the file from Firebase Storage
-        await deleteObject(storageRef);
-        console.log('Media deleted successfully from storage');
-      }
-
-      // Delete the message from Firestore
-      await deleteDoc(messageRef);
-      console.log('Message deleted successfully from Firestore');
-    } else {
-      console.error('Message does not exist in Firestore');
+    } catch (error) {
+      console.error('Error deleting message or media:', error);
     }
-  } catch (error) {
-    console.error('Error deleting message or media:', error);
-  }
-};
+  };
 
 
   const renderMedia = (media: string, onPress?: () => void) => {
@@ -326,10 +372,10 @@ const confirmDelete = async (messageId: string): Promise<void> => {
 
 
   const renderMessage = ({ item }: { item: Message }) => {
-    const isMine = item.senderId === currentUserId;
+    const isMine = item.sender === currentUserId;
     const isHighlighted = item.id === highlightedMessageId;
 
-    const scrollToMessageById = (messageId:string) => {
+    const scrollToMessageById = (messageId: string) => {
       const targetIndex = messageIdToIndexMap[messageId];
       console.log('targetIndex:', targetIndex);
       if (targetIndex !== undefined) {
@@ -349,9 +395,9 @@ const confirmDelete = async (messageId: string): Promise<void> => {
       if (item.replyTo?.id) {
         scrollToMessageById(item.replyTo.id);
       }
-         else {
-          console.error("could not find the message");
-        }
+      else {
+        console.error("could not find the message");
+      }
     };
 
     return (
@@ -369,7 +415,7 @@ const confirmDelete = async (messageId: string): Promise<void> => {
         {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
         <Text className="text-white">{item.text}</Text>
         <View className="flex-row justify-between mt-1">
-          <Text className="text-xs text-gray-300">{item.timestamp}</Text>
+          <Text className="text-xs text-gray-300">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
           <View className="flex-row gap-x-2">
             <TouchableOpacity onPress={() => handleReply(item)}>
               <Ionicons name="return-up-back-outline" size={16} color="white" />
@@ -391,17 +437,17 @@ const confirmDelete = async (messageId: string): Promise<void> => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
-    {receiverDetails &&
-    <View style={styles.statusBar}>
-        <Image source={{ uri: receiverDetails.profilePic }} style={styles.profilePic} />
-        <View style={styles.userInfo}>
-          <Text style={styles.username}>{receiverDetails.username}</Text>
-          {receiverDetails.status&&<Text style={styles.status}>{receiverDetails.status}</Text>}
-          {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
+      {receiverDetails &&
+        <View style={styles.statusBar}>
+          <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
+          <View style={styles.userInfo}>
+            <Text style={styles.username}>{receiverDetails.username}</Text>
+            {receiverDetails.status && <Text style={styles.status}>{receiverDetails.status}</Text>}
+            {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
+          </View>
         </View>
-      </View>
-}
-      
+      }
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -420,7 +466,7 @@ const confirmDelete = async (messageId: string): Promise<void> => {
             });
           }, 300); // wait for layout
         }}
-        />
+      />
 
       {replyTo && (
         <View className="bg-zinc-800 px-4 py-2 border-l-4 border-blue-500">
@@ -500,7 +546,7 @@ const confirmDelete = async (messageId: string): Promise<void> => {
           >
             <Ionicons name="close" size={32} color="white" />
           </TouchableOpacity>
-          {pressedFileExt === 'mp4' || pressedFileExt === 'mov'  ? (
+          {pressedFileExt === 'mp4' || pressedFileExt === 'mov' ? (
             <Video
               // source={{ uri: media }}
               // style={{ width: 220, height: 280, borderRadius: 12 }}

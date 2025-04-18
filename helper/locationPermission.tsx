@@ -11,7 +11,7 @@ import messaging from '@react-native-firebase/messaging';
 
 const firestore = getFirestore();
 
-export const requestLocationPermission = async (needsBackground = false) => {
+export const requestLocationPermission = async () => {
     if (Platform.OS === 'android') {
         try {
             // Request foreground permissions first
@@ -31,20 +31,20 @@ export const requestLocationPermission = async (needsBackground = false) => {
             }
 
             // For Android 10+ background location
-            if (needsBackground && Platform.Version >= 29) {
-                const backgroundGranted = await PermissionsAndroid.request(
-                    PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
-                    {
-                        title: "Background Location Required",
-                        message: "Enable 'Allow all the time' for post updates in background",
-                        buttonNeutral: "Ask Later",
-                        buttonNegative: "Cancel",
-                        buttonPositive: "OK",
-                    }
-                );
+            // if (needsBackground && Platform.Version >= 29) {
+            //     const backgroundGranted = await PermissionsAndroid.request(
+            //         PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
+            //         {
+            //             title: "Background Location Required",
+            //             message: "Enable 'Allow all the time' for post updates in background",
+            //             buttonNeutral: "Ask Later",
+            //             buttonNegative: "Cancel",
+            //             buttonPositive: "OK",
+            //         }
+            //     );
                 
-                return backgroundGranted === PermissionsAndroid.RESULTS.GRANTED;
-            }
+            //     return backgroundGranted === PermissionsAndroid.RESULTS.GRANTED;
+            // }
 
             return true;
             
