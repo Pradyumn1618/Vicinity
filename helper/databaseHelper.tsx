@@ -20,11 +20,11 @@ export const insertMessage = async (message: Message, chatId: string, receiver: 
     );
 };
 
-export const getMessages = async (chatId: string) => {
+export const getMessages = async (chatId: string,limit:number,offset:number=0) => {
     const db = await getDBConnection();
     const results = await db.executeSql(
-        'SELECT * FROM messages WHERE chatId = ? ORDER BY timestamp DESC',
-        [chatId]
+        'SELECT * FROM messages WHERE chatId = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+        [chatId, limit, offset]
     );
     const rows = results[0].rows;
     const messages = [];

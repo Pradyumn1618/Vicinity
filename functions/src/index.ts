@@ -17,7 +17,7 @@ if (!admin.apps.length) {
 }
 
 export const sendNotification = onCall(async (request) => {
-  const { token, title, body, data, tag } = request.data;
+  const { token, title, body, data} = request.data;
 
   if (!token || !Array.isArray(token) || token.length === 0) {
     throw new functions.https.HttpsError("invalid-argument", "token must be a non-empty array");
@@ -32,12 +32,6 @@ export const sendNotification = onCall(async (request) => {
           token: t,
           notification: title || body ? { title, body } : undefined,
           data,
-          android: {
-            notification: {
-              tag: tag || "", // if tag is provided, include it
-              // optionally: clickAction, channelId, etc.
-            },
-          },
         });
         return { token: t, success: true, res };
       } catch (err) {

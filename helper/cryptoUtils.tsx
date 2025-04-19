@@ -22,12 +22,39 @@ export const generateSharedSecret = (privateKey:string, publicKey:string) => {
   );
 };
 
+const storePrivateKeyOnServer = async (userId: string, privateKeyHex: string) => {
+    try {
+      const idToken = await auth().currentUser?.getIdToken(); // Get the user's ID token for authentication
+  
+      const response = await fetch('https://vicinity-backend.onrender.com/api/v1/auth/storePrivateKey', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`, // Send the ID token in the Authorization header
+        },
+        body: JSON.stringify({
+          userId,
+          privateKey: privateKeyHex, // Send the private key to the server
+        }),
+      });
+  
+      if (!response.ok) {
+        throw new Error(`Failed to store private key on server: ${response.statusText}`);
+      }
+  
+      console.log('Private key successfully stored on the server');
+    } catch (error) {
+      console.error('Error storing private key on server:', error);
+    }
+  };
+
 
 const storePrivateKey = async (userId: string, privateKeyHex: string): Promise<void> => {
     try {
         await Keychain.setGenericPassword(userId, privateKeyHex, {
             service: 'com.vicinity.privatekeys',
         });
+        storePrivateKeyOnServer(userId, privateKeyHex);
         console.log('Private key securely stored');
     } catch (error) {
         console.error('Error storing private key', error);

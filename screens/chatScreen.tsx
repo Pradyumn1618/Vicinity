@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image } from 'react-native';
+import React, { useState, useRef, useEffect, useMemo, useLayoutEffect, useCallback } from 'react';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
-import { getFirestore, collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, deleteDoc, Timestamp, getDocs } from '@react-native-firebase/firestore';
+import { getFirestore, collection, query, orderBy, doc, setDoc, getDoc, deleteDoc, Timestamp, getDocs } from '@react-native-firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 // import socket from '../config/socket';
@@ -11,14 +11,13 @@ import FastImage from 'react-native-fast-image'; // For better image and GIF sup
 
 import { RouteProp } from '@react-navigation/native';
 import { Modal } from 'react-native';
-import { clearNotification, sendDeleteNotification, sendDMNotification } from '../helper/sendNotification';
+import { sendDeleteNotification, sendDMNotification } from '../helper/sendNotification';
 import useReceiverStatus from '../helper/receiverStatus';
 import { useSocket } from '../helper/socketProvider';
 import { useChatContext } from '../context/chatContext';
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages,deleteMessage } from '../helper/databaseHelper';
-import * as Keychain from 'react-native-keychain';
-import { decryptMessage, generateSharedSecret, encryptMessage } from '../helper/cryptoUtils';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage } from '../helper/databaseHelper';
+import { set } from 'date-fns';
 // import { set } from 'date-fns';
 // import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
 // import sodium from 'libsodium-wrappers';
@@ -60,7 +59,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [attachedMedia, setAttachedMedia] = useState<{ uri: string, filename: string, type: string } | null>(null);
   const [pressedFileExt, setPressedFileExt] = useState<string | null>(null);
   const [receiverDetails, setReceiverDetails] = useState<any>(null);
-  const [publicKey, setPublicKey] = useState<string | null>(null);
   const [unreadTimestamp, setUnreadTimestamp] = useState<number | null>(null);
   const [unreadIndex, setUnreadIndex] = useState<number | null>(null);
   const receiverDetailsRef = useRef(receiverDetails);
@@ -104,7 +102,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     };
   }, [socket, receiver]);
 
-  const KEY_SERVICE = 'com.vicinity.privatekeys';
 
   useReceiverStatus(receiver, setReceiverDetails);
   useEffect(() => {
@@ -159,213 +156,158 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   }, [unreadIndex]);
 
 
-  useEffect(() => {
-    const fetchPublicKey = async () => {
-      if (!currentUserId) return;
-
-      try {
-
-        const userRef = doc(db, 'users', currentUserId);
-        const userDoc = await getDoc(userRef);
-
-        if (userDoc.exists) {
-          const data = userDoc.data();
-          if (data && data.publicKey) {
-            setPublicKey(data.publicKey);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch public key:', error);
-      }
-    };
-
-    fetchPublicKey();
-  }, [db, currentUserId]);
-
   useLayoutEffect(() => {
     setCurrentChatId(chatId);
     resetUnreadCount(chatId);
     resetUnreadTimestamp(chatId);
   }, [chatId, setCurrentChatId]);
+
+
+
+  const [lastTimestamp, setLastTimestamp] = useState<number | null>(null);
+  // const [newestTimestamp, setNewestTimestamp] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const MESSAGES_PAGE_SIZE = 20;
+
   
-
-
   useEffect(() => {
-    let unsubscribe: () => void = () => { };
-    const fetchCachedMessages = async () => {
-      const cachedMessages = await getMessages(chatId);
-      if (cachedMessages) {
+    let unsubscribe: () => void = () => {};
+  
+    const fetchInitialCachedMessages = async () => {
+      const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
+      if (cachedMessages && cachedMessages.length > 0) {
         setMessages(cachedMessages);
-      }
-    };
-    fetchCachedMessages();
-
-    const init = async () => {
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
-        )
-      );
-      if (!receiverDetailsRef) return;
-
-      // 1. Get user's private key from Keychain
-      const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
-      if (!existingKey) {
-        console.log('Private key not found in secure storage');
-        return;
-      }
-
-      const myPrivateKey = Buffer.from(existingKey.password, 'hex');
-      console.log(myPrivateKey);
-
-      const messagesRef = collection(db, 'chats', chatId, 'messages');
-      const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
-
-      // Fetch messages once using getDocs
-      const snapshot = await getDocs(messagesQuery);
-      const decryptedMessages: Message[] = [];
-
-      snapshot.forEach((d) => {
-        const data = d.data();
-        console.log('data', data);
-
-        // If encrypted
-        if (data.text && data.nonce && data.senderPubKey) {
-          try {
-            const senderPubKey = Buffer.from(data.senderPubKey, 'hex');
-            const nonce = Buffer.from(data.nonce, 'hex');
-            const ciphertext = Buffer.from(data.text, 'hex');
-            let medianonce = null;
-            if (data.medianonce) {
-              medianonce = Buffer.from(data.medianonce, 'hex');
-            }
-            let media = null;
-            if (data.media) {
-              media = Buffer.from(data.media, 'hex');
-            }
-            let decrypted = null;
-            let decryptedMedia = null;
-            if (data.sender === currentUserId) {
-              decrypted = decryptMessage(
-                ciphertext.toString('hex'),
-                nonce.toString('hex'),
-                myPrivateKey.toString('hex'),
-                receiverDetailsRef.current.publicKey.toString('hex')
-              );
-
-              decryptedMedia =
-                media && medianonce
-                  ? decryptMessage(
-                    media.toString('hex'),
-                    medianonce.toString('hex'),
-                    myPrivateKey.toString('hex'),
-                    receiverDetailsRef.current.publicKey.toString('hex')
-                  )
-                  : null;
-              console.log('Decrypted message:', decrypted);
-            } else {
-              decrypted = decryptMessage(
-                ciphertext.toString('hex'),
-                nonce.toString('hex'),
-                myPrivateKey.toString('hex'),
-                senderPubKey.toString('hex')
-              );
-              decryptedMedia =
-                media && medianonce
-                  ? decryptMessage(
-                    media.toString('hex'),
-                    medianonce.toString('hex'),
-                    myPrivateKey.toString('hex'),
-                    senderPubKey.toString('hex')
-                  )
-                  : null;
-              console.log('Decrypted message:', decrypted);
-            }
-
-            const decryptedMessage = {
-              id: d.id,
-              text: decrypted,
-              sender: data.sender,
-              timestamp:
-                data.timestamp instanceof Timestamp
-                  ? data.timestamp.toDate().getTime()
-                  : typeof data.timestamp === 'number'
-                    ? data.timestamp
-                    : Date.now(),
-              media: decryptedMedia || null,
-              replyTo: data.replyTo || null,
-              delivered: data.delivered || false,
-              seen: data.seen || false,
-            }
-
-            decryptedMessages.push({
-              ...decryptedMessage,
-            });
-
-            insertMessage(decryptedMessage, chatId, receiver);
-          } catch (e) {
-            console.error(`❌ Failed to decrypt message ${d.id}`, e);
-          }
-        } else {
-          // Unencrypted fallback
-          const decryptedMessage = {
-            id: d.id,
-            text: data.text || '',
-            sender: data.sender,
-            timestamp:
-              data.timestamp instanceof Timestamp
-                ? data.timestamp.toDate().getTime()
-                : typeof data.timestamp === 'number'
-                  ? data.timestamp
-                  : Date.now(),
-            media: data.media || null,
-            replyTo: data.replyTo || null,
-            delivered: data.delivered || false,
-            seen: data.seen || false,
-          };
-
-          decryptedMessages.push({
-            ...decryptedMessage,
-          });
-          insertMessage(decryptedMessage, chatId, receiver);
+        setLastTimestamp(cachedMessages[0].timestamp);
+        if(cachedMessages.length < MESSAGES_PAGE_SIZE){
+          setHasMore(false);
+          setLoadingMore(false);
         }
-      });
-      setMessages((prevMessages) => {
-        const updatedMessages: Message[] = [];
-        const newMessageIds = decryptedMessages.map((msg) => msg.id);
-
-        // Step 1: Keep only those that still exist in Firestore
-        prevMessages.forEach((oldMsg) => {
-          if (newMessageIds.includes(oldMsg.id)) {
-            const freshVersion = decryptedMessages.find((m) => m.id === oldMsg.id);
-            // Update only if different
-            if (freshVersion && JSON.stringify(freshVersion) !== JSON.stringify(oldMsg)) {
-              updatedMessages.push(freshVersion);
-            } else {
-              updatedMessages.push(oldMsg); // Keep existing
+        // setNewestTimestamp(cachedMessages[0].timestamp);
+      }
+    };
+    async function fetchMessages(chatId:string, lastTimestamp:number = 0) {
+      try {
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw new Error("User not authenticated");
+    
+        const idToken = await currentUser.getIdToken();
+    
+        const url = new URL("https://vicinity-backend.onrender.com/messages/sync");
+        url.searchParams.append("chatId", chatId);
+        url.searchParams.append("after", String(lastTimestamp));
+        url.searchParams.append("limit", String(0));
+    
+        const response = await fetch(url.toString(), {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+            "Content-Type": "application/json",
+          },
+        });
+    
+        console.log(response);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(`Error ${response.status}: ${error.error}`);
+        }
+    
+        const data = await response.json();
+        return data.messages;
+      } catch (err) {
+        console.error("Failed to fetch messages:", err.message);
+        return [];
+      }
+    }
+  
+    const syncMissedMessages = async () => {
+      try {
+        const newMessages = await fetchMessages(chatId, lastTimestamp || 0);
+  
+        for (const msg of newMessages) {
+            await insertMessage(msg, chatId, receiver);
+        }
+  
+        setMessages((prev) => {
+          const all = [...prev];
+          newMessages.forEach((msg:Message) => {
+            if (!all.some((m) => m.id === msg.id)) {
+              all.push(msg);
             }
-          }
+          });
+          return all.sort((a, b) => b.timestamp - a.timestamp);
         });
-
-        // Step 2: Add new ones that didn’t exist before
-        decryptedMessages.forEach((newMsg) => {
-          if (!prevMessages.some((m) => m.id === newMsg.id)) {
-            updatedMessages.push(newMsg);
-          }
-        });
-
-        return updatedMessages;
-      });
-
-      console.log(decryptedMessages);
+      } catch (err) {
+        console.error('Failed to sync missed messages:', err);
+      }
     };
-
+    const init = async () => {
+      await fetchInitialCachedMessages();
+      await syncMissedMessages();
+    };
+  
     init();
+    return () => unsubscribe();
+  }, [chatId, lastTimestamp, receiver, setMessages]);
+  
+ 
+  
+  const loadMessages = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      // No more cached — fetch from Firestore
+      const auth = getAuth();
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("User not authenticated");
 
-    return () => {
-      unsubscribe();
-    };
-  }, [chatId, db, setMessages, setCurrentChatId, setChats, auth, currentUserId, receiver]);
+  const idToken = await currentUser.getIdToken(); // Get the Firebase ID token
+  console.log(chatId,lastTimestamp);
+
+  const url = new URL('https://vicinity-backend.onrender.com/messages/sync');
+  url.searchParams.append('chatId', chatId);
+  url.searchParams.append('limit', String(MESSAGES_PAGE_SIZE));
+  if (lastTimestamp) url.searchParams.append('before', String(lastTimestamp || 0));
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${idToken}`, // Add Bearer token for authentication
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Error ${response.status}: ${error.error}`);
+  } 
+      console.log(response);
+      const data = await response.json();
+      const fetchedMessages: Message[] = data.messages;
+  
+      if (fetchedMessages.length < MESSAGES_PAGE_SIZE){
+        setHasMore(false);
+      } 
+      if (fetchedMessages.length > 0) {
+        setLastTimestamp(fetchedMessages[fetchedMessages.length - 1].timestamp);
+        setMessages((prevMessages) => {
+          const combined = [...fetchedMessages, ...prevMessages];
+          return combined.sort((a, b) => b.timestamp - a.timestamp);
+        });
+      }
+    } catch (err) {
+      console.error('Error loading older messages:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, chatId,lastTimestamp, setMessages]);
+  
+  const onEndReached = () => {
+    
+    loadMessages();
+  };
   //let the error be here
 
 
@@ -417,40 +359,20 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       delivered: false,
       seen: false,
     };
-    setMessages(prevMessages => [...prevMessages, { ...messageToDisplay }]);
+    setMessages(prevMessages => [messageToDisplay,...prevMessages]);
+    const inptext = inputText;
+    setInputText('');
+
     insertMessage(messageToDisplay, chatId, receiver);
 
-    const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
-    if (!existingKey) {
-      console.log('Private key not found in secure storage');
-      return;
-    }
-    const myPrivateKey = Buffer.from(existingKey.password, 'hex');
-
-    const sharedSecret = generateSharedSecret(myPrivateKey.toString('hex'), receiverDetails?.publicKey);
-
-    console.log('sharedSecret:', sharedSecret);
-    const { cipherText, nonce } = encryptMessage(inputText, sharedSecret);
-    let medianonce = null;
-    let mediaCipher = null;
-    if (media) {
-      const { cipherText: mediaCipherText, nonce: mediaNonce } = encryptMessage(media, sharedSecret);
-      mediaCipher = mediaCipherText;
-      medianonce = mediaNonce;
-    }
     const newMessage = {
       id: messageId, // unique id for the message
       sender: currentUserId,
       receiver: receiver,
-      text: cipherText,
-      media: mediaCipher, // or a URL/string if media is attached
       timestamp: Date.now(),
       replyTo: replyTo || null,
       delivered: false,
       seen: false,
-      nonce: nonce,
-      senderPubKey: publicKey,
-      medianonce: medianonce,
     };
     try {
 
@@ -467,6 +389,24 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       await setDoc(messagesRef, {
         ...newMessage,
       });
+
+      const userToken = await auth.currentUser?.getIdToken();
+      const response = await fetch("https://vicinity-backend.onrender.com/message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`, // Firebase ID token
+        },
+        body: JSON.stringify({
+          chatId,
+          text:inptext,
+          media,
+          messageId,
+        }),
+      });
+
+     console.log(response);
+
     } catch (error) {
       console.error('Error sending message:', error);
     }
@@ -476,11 +416,10 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       )
     );
 
-    setInputText('');
     setReplyTo(null);
     // setMedia(null); // Clear media after sending
     setUploadProgress(0);
-    sendDMNotification([receiverDetails?.fcmToken], currentUserId, inputText, chatId,messageId);
+    sendDMNotification([receiverDetails?.fcmToken], currentUserId, inptext, chatId, messageId);
     let nmessage = { ...newMessage, chatId: chatId };
     socket.emit('send-dm', { message: nmessage });
   };
@@ -542,7 +481,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
 
       await deleteMessage(messageId);
-      socket.emit('message-deleted', { messageId: messageId, chatId: chatId,receiver: receiver });
+      socket.emit('message-deleted', { messageId: messageId, chatId: chatId, receiver: receiver });
 
       // Reference to the message in Firestore
       const messageRef = doc(db, 'chats', chatId, 'messages', messageId);
@@ -573,7 +512,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         console.error('Message does not exist in Firestore');
       }
       sendDeleteNotification([receiverDetails?.fcmToken], messageId);
-      clearNotification([receiverDetails?.fcmToken], messageId);
     } catch (error) {
       console.error('Error deleting message or media:', error);
     }
@@ -712,6 +650,9 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
         initialNumToRender={10} // Optimize for large lists
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.1}
+        ListFooterComponent={loadingMore && messages.length > 20 ? <ActivityIndicator /> : null}
         onScrollToIndexFailed={({ index }) => {
           console.log('Scroll failed. Retrying index:', index);
           setTimeout(() => {
