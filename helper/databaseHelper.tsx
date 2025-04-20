@@ -1,6 +1,5 @@
 import { getFirestore } from "@react-native-firebase/firestore";
 import { getDBConnection } from "../config/database";
-import { time } from "console";
 // import { useChatContext } from "../context/chatContext";
 
 interface Message {
