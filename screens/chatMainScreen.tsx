@@ -28,7 +28,7 @@ const db = getFirestore();
 const auth = getAuth();
 
 export default function InboxScreen({ navigation }: chatMainScreenProps) {
-  const {setCurrentChatId} = useChatContext();
+  const {setCurrentChatId,setMessages} = useChatContext();
   const [tab, setTab] = useState('messages'); // Active tab
   const [searchText, setSearchText] = useState(''); // Search input text
   const onlineUsers = useNearbyOnlineUsers(); // Online users
@@ -52,6 +52,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
 useFocusEffect(
   useCallback(() => {
     setCurrentChatId('');
+    setMessages([]);
     let unsubscribeFirestore = () => {};
 
     const fetchChats = async () => {
