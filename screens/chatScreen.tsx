@@ -18,7 +18,7 @@ import { useChatContext } from '../context/chatContext';
 import NetInfo from '@react-native-community/netinfo';
 
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver } from '../helper/databaseHelper';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages } from '../helper/databaseHelper';
 // import { set } from 'date-fns';
 // import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
 // import sodium from 'libsodium-wrappers';
@@ -459,6 +459,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     };
     setShowDivider(false);
     setMessages(prevMessages => [messageToDisplay, ...prevMessages]);
+    insertMessage(messageToDisplay, chatId, receiver);
     const inptext = inputText;
     const reply = replyTo;
     setInputText('');
@@ -585,6 +586,14 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   };
 
   const confirmDelete = async (messageId: string): Promise<void> => {
+    const netInfo = await NetInfo.fetch();
+    const isOffline = !netInfo.isConnected;
+    if (isOffline) {
+      setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
+      await deleteMessage(messageId);
+      await insertIntoDeletedMessages(messageId,chatId,receiver);
+      return;
+    }
     try {
       // Remove the message from the local state
       setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));

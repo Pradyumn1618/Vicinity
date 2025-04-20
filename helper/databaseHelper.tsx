@@ -21,18 +21,18 @@ export const insertMessage = async (message: Message, chatId: string, receiver: 
     );
 };
 
-export const getReceiver = async (chatId:string) => {
+export const getReceiver = async (chatId: string) => {
     const db = await getDBConnection();
-    try{
-    const results = await db.executeSql(
-        'SELECT username,photoURL FROM chats WHERE id = ?',[chatId]
-    );
-    const rows = results[0].rows;
-    return rows.item(0);
-}catch(error){
-    console.log(error.message)
-}
-return null;
+    try {
+        const results = await db.executeSql(
+            'SELECT username,photoURL FROM chats WHERE id = ?', [chatId]
+        );
+        const rows = results[0].rows;
+        return rows.item(0);
+    } catch (error) {
+        console.log(error.message)
+    }
+    return null;
 
 }
 
@@ -150,21 +150,26 @@ export const resetUnreadTimestamp = async (chatId: string) => {
     console.log('timestamp_new:', timestamp);
 
     await db.executeSql(
-        `INSERT OR REPLACE INTO unread_counts (chatId, UnreadTimestamp) VALUES (?, ?)`,
+        'INSERT OR REPLACE INTO unread_counts (chatId, UnreadTimestamp) VALUES (?, ?)',
         [chatId, timestamp]
     );
     console.log('Reset unread timestamp for chatId:', chatId);
 }
 export const getUnreadTimestamp = async (chatId: string) => {
     const db = await getDBConnection();
-    const results = await db.executeSql(
-        'SELECT UnreadTimestamp FROM unread_counts WHERE chatId = ?',
-        [chatId]
-    );
-    const rows = results[0].rows;
-    if (rows.length > 0) {
-        console.log('UnreadTimestamp:', rows.item(0).UnreadTimestamp);
-        return Number(rows.item(0).UnreadTimestamp);
+    try {
+        const results = await db.executeSql(
+            'SELECT UnreadTimestamp FROM unread_counts WHERE chatId = ?',
+            [chatId]
+        );
+        const rows = results[0].rows;
+        if (rows.length > 0) {
+            console.log('UnreadTimestamp:', rows.item(0).UnreadTimestamp);
+            return Number(rows.item(0).UnreadTimestamp);
+        }
+    } catch (error) {
+        console.log('Error fetching unread timestamp:', error);
+        return 0;
     }
     return 0;
 }
@@ -214,21 +219,123 @@ export const setSeenMessages = async (chatId: string, userId: string, timestamp:
 
 export const getLocalMessages = async (chatId: string, beforeTimestamp: number, limit: number) => {
     const db = await getDBConnection(); // assuming you have a method for DB connection
-    const result = await db.executeSql(
-        `SELECT * FROM messages 
+    try {
+        const result = await db.executeSql(
+            `SELECT * FROM messages 
        WHERE chatId = ? AND timestamp < ? 
        ORDER BY timestamp DESC 
        LIMIT ?`,
-        [chatId, beforeTimestamp, limit]
-    );
+            [chatId, beforeTimestamp, limit]
+        );
 
-    const rows = result[0].rows;
-    const messages = [];
-    for (let i = 0; i < rows.length; i++) {
-        messages.push(rows.item(i));
+        const rows = result[0].rows;
+        const messages = [];
+        for (let i = 0; i < rows.length; i++) {
+            messages.push(rows.item(i));
+        }
+        return messages;
+    } catch (error) {
+        console.log('Error fetching local messages:', error);
+        return [];
     }
-    return messages;
 };
+
+export const insertIntoDeletedMessages = async (messageId: string, chatId: string, receiver: string) => {
+    const db = await getDBConnection();
+    try {
+        await db.executeSql(
+            'INSERT OR IGNORE INTO deletedMessages (id, chatId, receiver) VALUES (?, ?, ?)',
+            [messageId, chatId, receiver]
+        );
+    } catch (error) {
+        console.log('Error inserting into deletedMessages:', error);
+    }
+};
+
+export const getDeletedMessages = async (): Promise<{ id: string; chatId: string; receiver: string }[] | null> => {
+    const db = await getDBConnection();
+    try {
+        const results = await db.executeSql('SELECT * FROM deletedMessages', []);
+        const rows = results[0].rows;
+        const deletedMessages: { id: string; chatId: string; receiver: string }[] = [];
+        for (let i = 0; i < rows.length; i++) {
+            deletedMessages.push(rows.item(i));
+        }
+        return deletedMessages;
+    } catch (error) {
+        console.log('Error fetching deleted messages:', error);
+        return null;
+    }
+};
+
+export const deleteFromDeletedMessages = async (messageId: string) => {
+    const db = await getDBConnection();
+    try {
+        await db.executeSql(
+            'DELETE FROM deletedMessages WHERE id = ?',
+            [messageId]
+        );
+    } catch (error) {
+        console.log('Error deleting message from deletedMessages:', error);
+    }
+};
+
+import { getStorage, ref, deleteObject } from "@react-native-firebase/storage";
+import { doc, getDoc, deleteDoc } from "@react-native-firebase/firestore";
+import socket from "../config/socket";
+
+const fdb = getFirestore();
+const storage = getStorage();
+
+export const syncOfflineDeletions = async () => {
+    try {
+        const db = await getDBConnection();
+        const deletedMessages = await getDeletedMessages();
+        if (deletedMessages) {
+            if (!deletedMessages || !Array.isArray(deletedMessages)) {
+                console.log('No deleted messages to sync.');
+                return;
+            }
+            for (const message of deletedMessages) {
+                const { id, chatId, receiver } = message;
+
+                socket.emit('message-deleted', { messageId: id, chatId: chatId, receiver: receiver });
+
+                // Reference to the message in Firestore
+
+                const messageRef = doc(fdb, 'chats', chatId, 'messages', id);
+                const messageDoc = await getDoc(messageRef);
+
+                if (messageDoc.exists) {
+                    const messageData = messageDoc.data();
+
+                    // Check if the message has media
+                    if (messageData?.media) {
+                        const mediaUrl = messageData.media;
+
+                        // Extract the file path from the media URL
+                        const filePath = decodeURIComponent(mediaUrl.split('/o/')[1].split('?')[0]);
+
+                        // Reference to the file in Firebase Storage
+                        const storageRef = ref(storage, filePath);
+
+                        // Delete the file from Firebase Storage
+                        await deleteObject(storageRef);
+                        console.log('Media deleted successfully from storage');
+                    }
+
+                    // Delete the message from Firestore
+                    await deleteDoc(messageRef);
+                }
+            }
+        }
+        console.log('Deleted messages synced successfully');
+        await db.executeSql('DELETE FROM deletedMessages', []);
+    } catch (error) {
+        console.log('Error syncing deleted messages:', error);
+        throw error;
+    }
+}
 
 
 

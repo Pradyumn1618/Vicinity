@@ -2,6 +2,7 @@ import './global.css';
 import React, { useState, useEffect } from 'react';
 import Navigation from './navigation';
 import { Alert, AppState } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import { SocketProvider } from './helper/socketProvider';
 import auth from '@react-native-firebase/auth';
@@ -11,7 +12,7 @@ import InAppNotification from './components/inAppNotification';
 import { getDBConnection, createTables } from './config/database';
 import { ChatProvider } from './context/chatContext';
 import { useChatContext } from './context/chatContext';
-import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessage,decrementUnreadCount } from './helper/databaseHelper';
+import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessage, decrementUnreadCount, syncOfflineDeletions } from './helper/databaseHelper';
 import { Buffer } from 'buffer';
 import PushNotification from 'react-native-push-notification';
 import { navigationRef } from './helper/navigationService'; // adjust path
@@ -46,8 +47,20 @@ const App = () => {
         console.log('message start:', error.message);
       }
     };
+
     setupDatabase();
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      if (state.isConnected) {
+        syncOfflineDeletions();
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
 
   // 3. Handle notifications (foreground, background, killed)
   useEffect(() => {
@@ -142,7 +155,7 @@ const App = () => {
           console.log('🛑 Same chat — no notification shown');
           return; // Don't show notification
         }
-        
+
         // In-app notification overlay
         setNotificationData({
           title: remoteMessage.notification?.title || 'New Message',
@@ -150,7 +163,7 @@ const App = () => {
           chatId: data.customKey ?? '',
           sender: data.sender ?? '',
         });
-        
+
         // const message = {
         //   id: remoteMessage.data.id,
         //   sender: remoteMessage.data.sender,

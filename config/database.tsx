@@ -42,6 +42,17 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
 );
   `);
 
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS deletedMessages (
+    id TEXT PRIMARY KEY,
+    chatId TEXT,
+    receiver TEXT,
+    FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `
+  );
+
 
 
 };
