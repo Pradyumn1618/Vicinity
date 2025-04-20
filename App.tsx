@@ -5,21 +5,25 @@ import { Alert, AppState } from 'react-native';
 import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import { SocketProvider } from './helper/socketProvider';
 import auth from '@react-native-firebase/auth';
-import { useNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
-import { rootStackParamList } from './helper/types';
+import { NavigationContainer } from '@react-navigation/native';
+// import { rootStackParamList } from './helper/types';
 import InAppNotification from './components/inAppNotification';
 import { getDBConnection, createTables } from './config/database';
 import { ChatProvider } from './context/chatContext';
 import { useChatContext } from './context/chatContext';
-import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage } from './helper/databaseHelper';
+import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessage,decrementUnreadCount } from './helper/databaseHelper';
 import { Buffer } from 'buffer';
 import PushNotification from 'react-native-push-notification';
+import { navigationRef } from './helper/navigationService'; // adjust path
+import { send } from 'process';
+
+
 
 global.Buffer = Buffer;
 
+
 const App = () => {
   const { setChats, currentChatId } = useChatContext();
-  const navigationRef = useNavigationContainerRef<rootStackParamList>(); // Create a typed navigation ref
 
   interface NotificationData {
     title: string;
@@ -31,18 +35,6 @@ const App = () => {
   const [notificationData, setNotificationData] = useState<NotificationData | null>(null);
 
   // 1. Create Notification Channel (only needed once)
-  useEffect(() => {
-    PushNotification.createChannel(
-      {
-        channelId: 'dm-messages', // Must be same as used in local notification
-        channelName: 'DM Messages',
-        channelDescription: 'Direct message notifications',
-        importance: 4, // high importance
-        vibrate: true,
-      },
-      (created) => console.log(`Notification channel created: ${created}`)
-    );
-  }, []);
 
   // 2. Set up database
   useEffect(() => {
@@ -59,28 +51,6 @@ const App = () => {
 
   // 3. Handle notifications (foreground, background, killed)
   useEffect(() => {
-    // const handleNotification = async (remoteMessage: FirebaseMessagingTypes.RemoteMessage) => {
-    //   // Only increment unread count if it's a DM
-    //   if (remoteMessage.notification && remoteMessage.data?.purpose === 'dm') {
-    //     const chatId = remoteMessage.data.customKey ?? '';
-    //     await incrementUnreadCount(chatId); // Increment unread count in database
-    //   } else if (remoteMessage.notification && remoteMessage.data?.purpose === 'delete') {
-    //     // Handle delete notification
-    //     const messageId = remoteMessage.data?.customKey;
-    //     if (messageId) {
-    //       if (typeof messageId === 'string') {
-    //         await deleteMessage(messageId);
-    //       } else {
-    //         console.error('Invalid messageId type:', typeof messageId);
-    //       }
-    //       console.log('Message deleted:', messageId);
-    //     } else {
-    //       console.log('No message ID provided for deletion');
-    //     }
-    //     return;
-    //   }
-    // };
-
     // 3a. Handle notifications when app is opened from background
     const unsubscribeOpenedApp = messaging().onNotificationOpenedApp(async (remoteMessage) => {
       console.log('Notification caused app to open from background state:', remoteMessage.notification);
@@ -91,106 +61,43 @@ const App = () => {
         const chatId = remoteMessage.data?.customKey ?? '';
         console.log(chatId, sender);
         navigationRef.navigate('ChatScreen', { chatId, receiver: sender });
-      }else if(remoteMessage.userInfo){
-        
       }
     });
 
     // 3b. Handle app being opened from the killed state (cold start)
     const checkInitialNotification = async () => {
       const remoteMessage = await messaging().getInitialNotification();
-      // if (remoteMessage) {
-      //   console.log('App was opened from a notification:', remoteMessage.notification);
-      //   await handleNotification(remoteMessage);
-
-      //   // Push local notification when the app is killed and opened by the notification
-      //   if (remoteMessage.notification) {
-      //     PushNotification.localNotification({
-      //       channelId: 'dm-messages',
-      //       title: remoteMessage.notification.title ?? 'New Message',
-      //       message: remoteMessage.notification.body ?? 'You have a new message',
-      //       playSound: true,
-      //       soundName: 'default',
-      //       userInfo: {
-      //         chatId: remoteMessage.data?.customKey ?? '',
-      //         sender: remoteMessage.data?.sender ?? '',
-      //       },
-      //     });
-      //   }
-      // }
       if (remoteMessage) {
-        if (remoteMessage.data) {
-          if (remoteMessage.data.purpose === 'dm') {
-            const data = remoteMessage.data;
-            PushNotification.localNotification({
-              channelId: 'dm-messages',
-              title: data.title ?? 'New Message',
-              message: data.body ?? 'You have a new message',
-              id: typeof data.tag === 'string' ? data.tag : JSON.stringify(data.tag ?? ''),
-              playSound: true,
-              soundName: 'default',
-              userInfo: {
-                chatId: remoteMessage.data?.customKey ?? '',
-                sender: remoteMessage.data?.sender ?? '',
-              },
-            });
-            return;
-          }else if (remoteMessage.data.purpose === 'delete') {
+        if (remoteMessage.notification && remoteMessage.data?.purpose === 'dm') {
+          const message = {
+            id: remoteMessage.data.id,
+            sender: remoteMessage.data.sender,
+            text: remoteMessage.data.text,
+            media: remoteMessage.data.media,
+            replyTo: remoteMessage.data.replyTo,
+            timestamp: remoteMessage.data.timestamp,
+            delivered: remoteMessage.data.delivered,
+            seen: remoteMessage.data.seen,
+          }
+          await insertMessage(message, remoteMessage.data.customKey, remoteMessage.data.receiver);
+          incrementUnreadCount(remoteMessage.data.customKey);
+          return;
+        }
+        if (!remoteMessage.notification && remoteMessage.data) {
+          if (remoteMessage.data.purpose === 'delete') {
             const messageId = remoteMessage.data?.customKey;
             if (messageId) {
               await deleteMessage(messageId);
+              decrementUnreadCount(messageId);
               console.log('Message deleted:', messageId);
             } else {
               console.log('No message ID provided for deletion');
             }
             return;
-          }else if (remoteMessage.data.purpose === 'clear-notification') {
-            const messageId = remoteMessage.data?.tag;
-            PushNotification.cancelLocalNotification(messageId);
-            return;
           }
         }
       }
     };
-    messaging().setBackgroundMessageHandler(async (remoteMessage) => {
-      console.log('Background notification received:', remoteMessage.notification);
-
-      // await handleNotification(remoteMessage);
-
-      // Push local notification when app is in the background
-      if (remoteMessage.data) {
-        if (remoteMessage.data.purpose === 'dm') {
-          const data = remoteMessage.data;
-          PushNotification.localNotification({
-            channelId: 'dm-messages',
-            title: data.title ?? 'New Message',
-            message: data.body ?? 'You have a new message',
-            id: typeof data.tag === 'string' ? data.tag : JSON.stringify(data.tag ?? ''),
-            playSound: true,
-            soundName: 'default',
-            data: {
-              chatId: remoteMessage.data?.customKey ?? '',
-              sender: remoteMessage.data?.sender ?? '',
-            },
-          });
-          return;
-        }else if (remoteMessage.data.purpose === 'delete') {
-          const messageId = remoteMessage.data?.customKey;
-          if (messageId) {
-            await deleteMessage(messageId);
-            console.log('Message deleted:', messageId);
-          } else {
-            console.log('No message ID provided for deletion');
-          }
-          return;
-        }else if (remoteMessage.data.purpose === 'clear-notification') {
-          const messageId = remoteMessage.data?.tag;
-          PushNotification.cancelLocalNotification(messageId);
-          return;
-        }
-      }
-      
-    });
 
     // Check initial notification if the app was opened from a killed state
     checkInitialNotification();
@@ -213,7 +120,7 @@ const App = () => {
       unsubscribeOpenedApp();
       appStateListener.remove();
     };
-  }, [navigationRef, setChats]);
+  }, [setChats]);
 
   // 4. Handle incoming FCM notifications in the foreground
   useEffect(() => {
@@ -232,11 +139,24 @@ const App = () => {
 
         // In-app notification overlay
         setNotificationData({
-          title: typeof data.title === 'string' ? data.title : 'No Title',
-          body: typeof data.body === 'string' ? data.body : JSON.stringify(data.body ?? 'No Body'),
+          title: remoteMessage.notification?.title || 'New Message',
+          body: remoteMessage.notification?.body || 'You have a new message.',
           chatId: data.customKey ?? '',
           sender: data.sender ?? '',
         });
+        
+        // const message = {
+        //   id: remoteMessage.data.id,
+        //   sender: remoteMessage.data.sender,
+        //   text: remoteMessage.data.text,
+        //   media: remoteMessage.data.media,
+        //   replyTo: remoteMessage.data.replyTo,
+        //   timestamp: remoteMessage.data.timestamp,
+        //   delivered: remoteMessage.data.delivered,
+        //   seen: remoteMessage.data.seen,
+        // }
+
+        // insertMessage(message, remoteMessage.data.customKey, remoteMessage.data.receiver);
         return;
       } else if (purpose === 'delete') {
         // Handle delete notification
@@ -248,13 +168,7 @@ const App = () => {
           console.log('No message ID provided for deletion');
         }
         return;
-      } else if (purpose === 'clear-notification') {
-        // Handle clear notification
-        const messageId = remoteMessage.data?.customKey;
-        PushNotification.cancelLocalNotification(messageId);
-        return;
       }
-
       // Handle other types of notifications (e.g., delete, alert)
       const title = data.title || 'Notification';
       const body = data.body || 'You have a new message.';
@@ -287,7 +201,17 @@ const App = () => {
       popInitialNotification: true,
       requestPermissions: true,
     });
-  }, [navigationRef]);
+    PushNotification.createChannel(
+      {
+        channelId: 'dm-messages-v3', // Must be same as used in local notification
+        channelName: 'DM Messages',
+        channelDescription: 'Direct message notifications',
+        importance: 4, // high importance
+        vibrate: true,
+      },
+      (created) => console.log(`Notification channel created v3: ${created}`)
+    );
+  }, []);
 
   const handleNotificationPress = () => {
     if (notificationData?.chatId && notificationData?.sender) {
