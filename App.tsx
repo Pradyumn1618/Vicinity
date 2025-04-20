@@ -132,11 +132,17 @@ const App = () => {
       if (!data) return;
 
       if (purpose === 'dm' && remoteMessage.data) {
-        if (remoteMessage.data.customKey === currentChatId) {
+        if (
+          remoteMessage.data.customKey &&
+          currentChatId &&
+          typeof remoteMessage.data.customKey === 'string' &&
+          typeof currentChatId === 'string' &&
+          remoteMessage.data.customKey.trim() === currentChatId.trim()
+        ) {
           console.log('🛑 Same chat — no notification shown');
-          return; // Exit early
+          return; // Don't show notification
         }
-
+        
         // In-app notification overlay
         setNotificationData({
           title: remoteMessage.notification?.title || 'New Message',

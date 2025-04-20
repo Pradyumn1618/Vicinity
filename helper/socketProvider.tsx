@@ -63,7 +63,6 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
       socket.on('seen-messages', async (msg) => {
         const { chatId, userId: receiver, timestamp } = msg;
-        await setSeenMessages(chatId, receiver, timestamp);
         if (currentChatId === chatId) {
           setMessages((prev: Message[]) => prev.map((message) => {
             if (message.sender !== receiver && message.timestamp <= timestamp) {
@@ -75,6 +74,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
             return message;
           }));
         }
+        await setSeenMessages(chatId, receiver, timestamp);
       });
 
       // Remove any existing listener before adding a new one
@@ -94,7 +94,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
           socket.emit('seen-messages', {
             chatId: msg.chatId,
             receiver: msg.sender,
-            timestamp: msg.timestamp - 2000,
+            timestamp: msg.timestamp,
             userId: myUid,
           });
 

@@ -18,7 +18,7 @@ import { useChatContext } from '../context/chatContext';
 import NetInfo from '@react-native-community/netinfo';
 
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages } from '../helper/databaseHelper';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver } from '../helper/databaseHelper';
 // import { set } from 'date-fns';
 // import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
 // import sodium from 'libsodium-wrappers';
@@ -105,6 +105,20 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       socket.off('status_response');
     };
   }, [socket, receiver]);
+
+  useEffect(()=>{
+    const getReceiverDetails = async () => {
+      console.log('getting receiver details')
+      const details = await getReceiver(chatId);
+      console.log('details',details);
+      setReceiverDetails((prev: any) => ({
+        ...prev,
+        username:details.username,
+        photoURL:details.photoURL,
+      }));
+    };
+    getReceiverDetails();
+  },[chatId]);
 
 
   useReceiverStatus(receiver, setReceiverDetails);
@@ -250,8 +264,14 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         console.error('Failed to sync missed messages:', err);
       }
     };
-    if(lastTimestamp !== null){
-      syncMissedMessages();
+    if (lastTimestamp !== null) {
+      const checkNetworkAndSync = async () => {
+        const netInfo = await NetInfo.fetch();
+        if (netInfo.isConnected) {
+          syncMissedMessages();
+        }
+      };
+      checkNetworkAndSync();
     }
   },[chatId, lastTimestamp, receiver, setMessages])
 
@@ -265,7 +285,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         setMessages(cachedMessages);
         setLastTimestamp(cachedMessages[cachedMessages.length - 1].timestamp);
         if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
-          setHasMore(false);
+          // setHasMore(false);
           setLoadingMore(false);
         }
         setOffset(cachedMessages.length);
@@ -275,7 +295,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     };
   
     fetchInitialCachedMessages();
-  }, [chatId, setMessages]); // Only run when chatId changes
+  },[chatId, setMessages]); // Only run when chatId changes
   
 
   const syncMessages = useCallback(async (fetchedMessages: Message[], beforeTimestamp: number) => {
@@ -320,6 +340,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
           setHasMore(false);
         }
+        setLoadingMore(false);
 
         return;
       }
@@ -336,6 +357,8 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       url.searchParams.append('chatId', chatId);
       url.searchParams.append('limit', '20');
       url.searchParams.append('before', String(lastTimestamp || 0));
+
+      console.log('Fetching messages from URL:', url.toString()); 
 
       const response = await fetch(url.toString(), {
         method: 'GET',
@@ -362,7 +385,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
           const combined = [...fetchedMessages, ...prevMessages];
           return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
         });
-        await syncMessages(fetchedMessages, lastTimestamp || 0);
+        // await syncMessages(fetchedMessages, lastTimestamp || 0);
         setLastTimestamp(fetchedMessages[fetchedMessages.length - 1].timestamp);
       }
     } catch (err) {
@@ -370,11 +393,15 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages,syncMessages]);
+  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages]);
 
   const onEndReached = () => {
-
-    loadMessages();
+    if(messages.length >= 20){
+      // console.log('Loading more messages...');
+      // console.log('loadingMore:', loadingMore);
+      // console.log('hasMore:', hasMore);
+      loadMessages();
+    }
   };
   //let the error be here
 
@@ -748,7 +775,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         initialNumToRender={10} // Optimize for large lists
         onEndReached={onEndReached}
         onEndReachedThreshold={0.1}
-        ListFooterComponent={loadingMore && messages.length > 20 ? <ActivityIndicator /> : null}
+        ListFooterComponent={loadingMore && messages.length >= 20 ? <ActivityIndicator /> : null}
         onScrollToIndexFailed={({ index }) => {
           console.log('Scroll failed. Retrying index:', index);
           setTimeout(() => {

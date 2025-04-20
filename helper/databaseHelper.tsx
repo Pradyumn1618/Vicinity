@@ -21,6 +21,21 @@ export const insertMessage = async (message: Message, chatId: string, receiver: 
     );
 };
 
+export const getReceiver = async (chatId:string) => {
+    const db = await getDBConnection();
+    try{
+    const results = await db.executeSql(
+        'SELECT username,photoURL FROM chats WHERE id = ?',[chatId]
+    );
+    const rows = results[0].rows;
+    return rows.item(0);
+}catch(error){
+    console.log(error.message)
+}
+return null;
+
+}
+
 export const getMessages = async (chatId: string, limit: number, offset: number = 0) => {
     const db = await getDBConnection();
     const results = await db.executeSql(
