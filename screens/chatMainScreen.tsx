@@ -28,17 +28,44 @@ const db = getFirestore();
 const auth = getAuth();
 
 export default function InboxScreen({ navigation }: chatMainScreenProps) {
-  const {setCurrentChatId,setMessages} = useChatContext();
+  const { setCurrentChatId, setMessages } = useChatContext();
   const [tab, setTab] = useState('messages'); // Active tab
   const [searchText, setSearchText] = useState(''); // Search input text
   const onlineUsers = useNearbyOnlineUsers(); // Online users
-  const {chats, setChats} = useChatContext(); // Direct messages
+  const { chats, setChats } = useChatContext(); // Direct messages
   const [groups, setGroups] = useState<Group[]>([]); // Groups
   const [isModalVisible, setIsModalVisible] = useState(false); // Modal visibility
   const [searchResults, setSearchResults] = useState<{ id: string; username: string; photoURL?: string }[]>([]); // Search results
 
+  const [isUserModalVisible, setIsUserModalVisible] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<OnlineUser>();
 
-  
+  interface OnlineUser {
+    userId: string;
+    geohash: string;
+    username: string;
+    profilePic: string;
+  }
+
+  const handleUserPress = (user: OnlineUser) => {
+    setSelectedUser(user);
+    setIsUserModalVisible(true);
+  };
+
+  const handleViewProfile = (user: OnlineUser) => {
+    setIsUserModalVisible(false);
+    navigation.navigate('UserProfileScreen', { userId: user.userId });
+  };
+
+  const handleSendMessage = (user: OnlineUser) => {
+    setIsUserModalVisible(false);
+    const chatId = generateChatId(user.userId);
+    resetUnreadCount(chatId);
+    navigation.navigate('ChatScreen', { chatId: chatId, receiver: user.userId });
+  };
+
+
+
   interface Group {
     id: string;
     name: string;
@@ -48,136 +75,136 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
     lastSender?: string;
   }
 
-  
-useFocusEffect(
-  useCallback(() => {
-    setCurrentChatId('');
-    setMessages([]);
-    let unsubscribeFirestore = () => {};
 
-    const fetchChats = async () => {
-      const userId = auth.currentUser?.uid;
-      if (!userId){
-        console.log('user not found!');
-      return;
-      }
-        
+  useFocusEffect(
+    useCallback(() => {
+      setCurrentChatId('');
+      setMessages([]);
+      let unsubscribeFirestore = () => { };
 
-      // STEP 1: Fetch from SQLite immediately
-      let localChats = null;
-      localChats = await getAllChatsFromSQLite(userId);
-      console.log('Local chats:', localChats);
-      setChats(localChats); // show cached chats first
-      
-      // STEP 2: Start listening to Firestore updates
-      console.log("userId:",userId);
-      const chatsRef = collection(db, 'chats');
-      const chatsQuery = query(chatsRef, where('participants', 'array-contains', userId));
+      const fetchChats = async () => {
+        const userId = auth.currentUser?.uid;
+        if (!userId) {
+          console.log('user not found!');
+          return;
+        }
 
-      unsubscribeFirestore = onSnapshot(chatsQuery, async (snapshot) => {
-        const localChatMap = new Map(localChats?.map((chat) => [chat.id, chat]));
 
-        const chatList = await Promise.all(
-          snapshot.docs.map(async (d) => {
-            const data = d.data();
-            const otherParticipant = getOtherParticipant(data.participants);
+        // STEP 1: Fetch from SQLite immediately
+        let localChats = null;
+        localChats = await getAllChatsFromSQLite(userId);
+        console.log('Local chats:', localChats);
+        setChats(localChats); // show cached chats first
 
-            let photoURL = null;
-            let username = null;
-            if (otherParticipant) {
-              const userRef = doc(db, 'users', otherParticipant);
-              const userSnap = await getDoc(userRef);
-              if (userSnap.exists) {
-                photoURL = userSnap.data()?.profilePic || null;
-                username = userSnap.data()?.username || null;
+        // STEP 2: Start listening to Firestore updates
+        console.log("userId:", userId);
+        const chatsRef = collection(db, 'chats');
+        const chatsQuery = query(chatsRef, where('participants', 'array-contains', userId));
+
+        unsubscribeFirestore = onSnapshot(chatsQuery, async (snapshot) => {
+          const localChatMap = new Map(localChats?.map((chat) => [chat.id, chat]));
+
+          const chatList = await Promise.all(
+            snapshot.docs.map(async (d) => {
+              const data = d.data();
+              const otherParticipant = getOtherParticipant(data.participants);
+
+              let photoURL = null;
+              let username = null;
+              if (otherParticipant) {
+                const userRef = doc(db, 'users', otherParticipant);
+                const userSnap = await getDoc(userRef);
+                if (userSnap.exists) {
+                  photoURL = userSnap.data()?.profilePic || null;
+                  username = userSnap.data()?.username || null;
+                }
               }
-            }
 
-            const existing = localChatMap.get(d.id);
+              const existing = localChatMap.get(d.id);
 
-            await insertOrUpdateChatInSQLite({
-              id: d.id,
-              participants: data.participants || [],
-              photoURL,
-              username,
-            });
+              await insertOrUpdateChatInSQLite({
+                id: d.id,
+                participants: data.participants || [],
+                photoURL,
+                username,
+              });
 
-            return {
-              id: d.id,
-              participants: data.participants || [],
-              photoURL,
-              username,
-              unreadCount: existing?.unreadCount || 0,
-            };
-          })
+              return {
+                id: d.id,
+                participants: data.participants || [],
+                photoURL,
+                username,
+                unreadCount: existing?.unreadCount || 0,
+              };
+            })
+          );
+
+          console.log('Fetched chats:', chatList);
+          setChats(chatList);
+        });
+      };
+
+      fetchChats();
+
+      return () => {
+        if (unsubscribeFirestore) unsubscribeFirestore();
+      };
+    }, [setCurrentChatId, setChats, setMessages])
+  );
+
+
+  useFocusEffect(
+    useCallback(() => {
+      let unsubscribeFirestore = () => { };
+
+      const fetchUserGroups = async () => {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+
+        const userRef = doc(db, 'users', userId);
+        const userSnap = await getDoc(userRef);
+        const userData = userSnap.data();
+
+        if (!userData || !userData.groups || userData.groups.length === 0) {
+          console.error('❌ User data or groups are missing');
+          setGroups([]); // Optionally clear group list if user has none
+          return;
+        }
+
+        const groupsRef = collection(db, 'groups');
+        const groupsQuery = query(
+          groupsRef,
+          where(firestore.FieldPath.documentId(), 'in', userData.groups)
         );
 
-        console.log('Fetched chats:', chatList);
-        setChats(chatList);
-      });
-    };
+        unsubscribeFirestore = onSnapshot(groupsQuery, async (snapshot) => {
+          const groupList = await Promise.all(
+            snapshot.docs.map(async (d) => {
+              const groupData = d.data();
+              const groupId = d.id;
 
-    fetchChats();
+              return {
+                id: groupId,
+                name: groupData?.name,
+                photoURL: groupData?.photoURL || null,
+                time: groupData?.lastMessageTime || null,
+                message: groupData?.lastMessage || '',
+                lastSender: groupData?.lastSender || null,
+              };
+            })
+          );
 
-    return () => {
-      if (unsubscribeFirestore) unsubscribeFirestore();
-    };
-  }, [setCurrentChatId, setChats])
-);
+          setGroups(groupList);
+        });
+      };
 
+      fetchUserGroups();
 
-useFocusEffect(
-  useCallback(() => {
-    let unsubscribeFirestore = () => {};
-
-    const fetchUserGroups = async () => {
-      const userId = auth.currentUser?.uid;
-      if (!userId) return;
-
-      const userRef = doc(db, 'users', userId);
-      const userSnap = await getDoc(userRef);
-      const userData = userSnap.data();
-
-      if (!userData || !userData.groups || userData.groups.length === 0) {
-        console.error('❌ User data or groups are missing');
-        setGroups([]); // Optionally clear group list if user has none
-        return;
-      }
-
-      const groupsRef = collection(db, 'groups');
-      const groupsQuery = query(
-        groupsRef,
-        where(firestore.FieldPath.documentId(), 'in', userData.groups)
-      );
-
-      unsubscribeFirestore = onSnapshot(groupsQuery, async (snapshot) => {
-        const groupList = await Promise.all(
-          snapshot.docs.map(async (d) => {
-            const groupData = d.data();
-            const groupId = d.id;
-
-            return {
-              id: groupId,
-              name: groupData?.name,
-              photoURL: groupData?.photoURL || null,
-              time: groupData?.lastMessageTime || null,
-              message: groupData?.lastMessage || '',
-              lastSender: groupData?.lastSender || null,
-            };
-          })
-        );
-
-        setGroups(groupList);
-      });
-    };
-
-    fetchUserGroups();
-
-    return () => {
-      if (unsubscribeFirestore) unsubscribeFirestore();
-    };
-  }, [setGroups])
-);
+      return () => {
+        if (unsubscribeFirestore) unsubscribeFirestore();
+      };
+    }, [setGroups])
+  );
 
 
   const getOtherParticipant = (participants: string[]): string | undefined => {
@@ -256,7 +283,15 @@ useFocusEffect(
           }}
         >
           {onlineUsers.map((user) => (
-            <View key={user.userId} style={{ alignItems: 'center', marginRight: 12 }}>
+            <TouchableOpacity
+              key={user.userId}
+              onPress={() => handleUserPress(user)}
+              style={{
+                alignItems: 'center',
+                marginRight: 12,
+              }}
+            >
+
               <View style={{ position: 'relative' }}>
                 <Image
                   source={{ uri: user.profilePic || 'https://via.placeholder.com/40' }}
@@ -292,14 +327,74 @@ useFocusEffect(
               >
                 {user.username}
               </Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </ScrollView>
+
       ) : (
         <View style={{ alignItems: 'center', marginVertical: 16 }}>
           <Text style={{ color: 'white', fontSize: 14 }}>No online users in your vicinity</Text>
         </View>
       )}
+      <Modal
+        isVisible={isUserModalVisible}
+        onBackdropPress={() => setIsUserModalVisible(false)}
+        style={{
+          justifyContent: 'flex-end', // Align the modal at the bottom
+          margin: 0, // Remove default margin
+        }}
+      >
+        <View
+          style={{
+            backgroundColor: '#1E1E1E', // Dark background for contrast
+            padding: 20,
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            borderWidth: 1,
+            borderColor: '#333',
+          }}
+        >
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <Image
+              source={{ uri: selectedUser?.profilePic || 'https://via.placeholder.com/80' }}
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                marginBottom: 8,
+              }}
+            />
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: 'white' }}>
+              {selectedUser?.username}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => selectedUser && handleViewProfile(selectedUser)}
+            style={{
+              padding: 12,
+              backgroundColor: '#4F46E5',
+              borderRadius: 8,
+              marginBottom: 12,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: 'white', fontSize: 16 }}>View Profile</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => selectedUser && handleSendMessage(selectedUser)}
+            style={{
+              padding: 12,
+              backgroundColor: '#34D399', // Green for "Send Message"
+              borderRadius: 8,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: 'white', fontSize: 16 }}>Send Message</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
 
       {/* Tabs */}
       <View className="flex-row justify-around mb-4">

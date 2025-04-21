@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useLayoutEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator, Button, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator,ToastAndroid,PermissionsAndroid, Pressable } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
-import { getFirestore, collection, query, orderBy, doc, setDoc, getDoc, deleteDoc, Timestamp, getDocs } from '@react-native-firebase/firestore';
+import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc } from '@react-native-firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject, FirebaseStorageTypes } from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 // import socket from '../config/socket';
@@ -16,12 +16,14 @@ import useReceiverStatus from '../helper/receiverStatus';
 import { useSocket } from '../helper/socketProvider';
 import { useChatContext } from '../context/chatContext';
 import NetInfo from '@react-native-community/netinfo';
+import { nanoid } from 'nanoid';
+import moment from 'moment';
+import RNFS from 'react-native-fs';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 
 import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages } from '../helper/databaseHelper';
-// import { set } from 'date-fns';
-// import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
-// import sodium from 'libsodium-wrappers';
 
 
 
@@ -72,6 +74,84 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   // const [initialScrollDone, setInitialScrollDone] = useState(false);
 
+  async function hasAndroidPermission() {
+    const getCheckPermissionPromise = () => {
+      if (Number(Platform.Version) >= 33) {
+        return Promise.all([
+          PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES),
+          PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO),
+        ]).then(
+          ([hasReadMediaImagesPermission, hasReadMediaVideoPermission]) =>
+            hasReadMediaImagesPermission && hasReadMediaVideoPermission,
+        );
+      } else {
+        return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE);
+      }
+    };
+  
+    const hasPermission = await getCheckPermissionPromise();
+    if (hasPermission) {
+      return true;
+    }
+    const getRequestPermissionPromise = () => {
+      if (Number(Platform.Version) >= 33) {
+        return PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
+          PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+        ]).then(
+          (statuses) =>
+            statuses[PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES] ===
+              PermissionsAndroid.RESULTS.GRANTED &&
+            statuses[PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO] ===
+              PermissionsAndroid.RESULTS.GRANTED,
+        );
+      } else {
+        return PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE).then((status) => status === PermissionsAndroid.RESULTS.GRANTED);
+      }
+    };
+  
+    return await getRequestPermissionPromise();
+  }
+
+  async function downloadAndSaveToGallery(url:string, filename = 'myfile.jpg', mediaType = 'photo') {
+    const hasPermission = await hasAndroidPermission();
+    if (!hasPermission) {
+      console.log('Permission denied');
+      ToastAndroid.show('Permission denied', ToastAndroid.SHORT);
+      return;
+    }
+    try {
+      const localPath = `${RNFS.TemporaryDirectoryPath}/${filename}`;
+  
+      // Step 1: Download file
+      const result = await RNFS.downloadFile({
+        fromUrl: url,
+        toFile: localPath,
+      }).promise;
+  
+      if (result.statusCode === 200) {
+        // Step 2: Save to gallery
+        const savedUri = await CameraRoll.saveAsset(`file://${localPath}`);
+        ToastAndroid.show('Saved to gallery', ToastAndroid.SHORT);
+  
+        console.log('Saved to gallery at:', savedUri);
+        return savedUri;
+      } else {
+        throw new Error('Download failed');
+      }
+    } catch (err) {
+      console.error('Failed to save media:', err);
+      throw err;
+    }
+  }
+
+  const getFileNameFromUrl = (url) => {
+    const extension = url.split('.').pop().split(/#|\?/)[0]; // jpg, mp4, etc.
+    const uniqueName = `chat_media_${Date.now()}.${extension}`;
+    return uniqueName;
+  };
+  
+
   const handleMediaPress = (uri: string) => {
     // Check if the media is a video
     const cleanUrl = uri.split('?')[0].toLowerCase();
@@ -106,19 +186,19 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     };
   }, [socket, receiver]);
 
-  useEffect(()=>{
+  useEffect(() => {
     const getReceiverDetails = async () => {
       console.log('getting receiver details')
       const details = await getReceiver(chatId);
-      console.log('details',details);
+      console.log('details', details);
       setReceiverDetails((prev: any) => ({
         ...prev,
-        username:details.username,
-        photoURL:details.photoURL,
+        username: details.username,
+        photoURL: details.photoURL,
       }));
     };
     getReceiverDetails();
-  },[chatId]);
+  }, [chatId]);
 
 
   useReceiverStatus(receiver, setReceiverDetails);
@@ -187,7 +267,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
-  const MESSAGES_PAGE_SIZE = 20;
+  const MESSAGES_PAGE_SIZE = 40;
 
   useEffect(() => {
     const updateSeenMessages = async () => {
@@ -200,7 +280,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       socket.emit('seen-messages', {
         chatId: chatId,
         receiver: receiver,
-        timestamp: lastSeenTimestamp,
+        timestamp: Date.now(),
         userId: currentUserId,
       });
     };
@@ -212,8 +292,8 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   }, [chatId, currentUserId, receiver, socket]);
 
 
-  useEffect(()=>{
-       async function fetchMessages(chatId: string, lastTimestamp: number = 0) {
+  useEffect(() => {
+    async function fetchMessages(chatId: string, lastTimestamp: number = 0) {
       try {
         const auth = getAuth();
         const currentUser = auth.currentUser;
@@ -273,30 +353,32 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       };
       checkNetworkAndSync();
     }
-  },[chatId, lastTimestamp, receiver, setMessages])
+  }, [chatId, lastTimestamp, receiver, setMessages])
 
 
   useEffect(() => {
     const fetchInitialCachedMessages = async () => {
+      setLoadingMore(true);
       const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
       console.log('Fetched initial cached messages:', cachedMessages);
-  
+
       if (cachedMessages && cachedMessages.length > 0) {
         setMessages(cachedMessages);
         setLastTimestamp(cachedMessages[cachedMessages.length - 1].timestamp);
         if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
-          // setHasMore(false);
-          setLoadingMore(false);
+          setHasMore(false);
+
         }
         setOffset(cachedMessages.length);
-      }else{
+      } else {
         setLastTimestamp(0);
       }
+      setLoadingMore(false);
     };
-  
+
     fetchInitialCachedMessages();
-  },[chatId, setMessages]); // Only run when chatId changes
-  
+  }, [chatId, setMessages]); // Only run when chatId changes
+
 
   const syncMessages = useCallback(async (fetchedMessages: Message[], beforeTimestamp: number) => {
     // Step 1: Insert all fetched messages
@@ -355,10 +437,10 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
       const url = new URL('https://vicinity-backend.onrender.com/messages/sync');
       url.searchParams.append('chatId', chatId);
-      url.searchParams.append('limit', '20');
+      url.searchParams.append('limit', '40');
       url.searchParams.append('before', String(lastTimestamp || 0));
 
-      console.log('Fetching messages from URL:', url.toString()); 
+      console.log('Fetching messages from URL:', url.toString());
 
       const response = await fetch(url.toString(), {
         method: 'GET',
@@ -380,12 +462,12 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         setHasMore(false);
       }
       if (fetchedMessages.length > 0) {
-        
+
         setMessages((prevMessages) => {
           const combined = [...fetchedMessages, ...prevMessages];
           return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
         });
-        // await syncMessages(fetchedMessages, lastTimestamp || 0);
+        syncMessages(fetchedMessages, lastTimestamp || 0);
         setLastTimestamp(fetchedMessages[fetchedMessages.length - 1].timestamp);
       }
     } catch (err) {
@@ -393,19 +475,16 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages]);
+  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages, syncMessages]);
 
   const onEndReached = () => {
-    if(messages.length >= 20){
-      // console.log('Loading more messages...');
-      // console.log('loadingMore:', loadingMore);
-      // console.log('hasMore:', hasMore);
+    if (messages.length >= 40) {
       loadMessages();
     }
   };
   //let the error be here
 
-  
+
 
 
   const handleSend = async () => {
@@ -445,7 +524,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         return;
       }
     }
-    const messageId = chatId + Date.now().toString();
+    const messageId = chatId + `${Date.now()}_${nanoid(6)}`;
 
     const messageToDisplay = {
       id: messageId,
@@ -555,6 +634,40 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     inputRef.current?.focus();
   };
 
+  type DividerItem = {
+    type: 'divider';
+    date: number;
+    id: string;
+  };
+  type DecoratedMessage = Message & { type: 'message' } | DividerItem;
+
+  const formatMessagesWithDateDividers = useCallback((msgs: Message[]): DecoratedMessage[] => {
+    const formatted: DecoratedMessage[] = [];
+    let lastDate: moment.Moment | null = null;
+
+    const reversedMsgs = [...msgs].reverse();
+
+    for (const msg of reversedMsgs) {
+      const msgDate = moment(msg.timestamp).local().startOf('day');
+      if (!lastDate || !msgDate.isSame(lastDate)) {
+        formatted.push({
+          type: 'divider',
+          date: msg.timestamp,
+          id: msg.id + nanoid(6),
+        });
+        lastDate = msgDate;
+      }
+      formatted.push({ ...msg, type: 'message' });
+    }
+
+    return formatted.reverse();
+  }, []);
+
+  const decoratedMessages = useMemo(() => {
+    return formatMessagesWithDateDividers(messages);
+  }, [messages, formatMessagesWithDateDividers]);
+
+
 
 
   const messageIdToIndexMap = useMemo(() => {
@@ -591,7 +704,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     if (isOffline) {
       setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
       await deleteMessage(messageId);
-      await insertIntoDeletedMessages(messageId,chatId,receiver);
+      await insertIntoDeletedMessages(messageId, chatId, receiver);
       return;
     }
     try {
@@ -683,7 +796,24 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   };
 
 
-  const renderMessage = ({ item }: { item: Message }) => {
+  const renderMessage = ({ item }: { item: DecoratedMessage }) => {
+    if (item.type === 'divider') {
+      const label = moment(item.date).calendar(null, {
+        sameDay: '[Today]',
+        lastDay: '[Yesterday]',
+        lastWeek: 'dddd',
+        sameElse: 'MMMM D, YYYY',
+      });
+      return (
+        <View className="flex-row justify-center items-center my-2">
+          <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm">
+            <Text className="text-xs text-gray-800 dark:text-gray-200 font-large">{label}</Text>
+          </View>
+        </View>
+
+      );
+    }
+
     const isMine = item.sender === currentUserId;
     const isHighlighted = item.id === highlightedMessageId;
 
@@ -712,42 +842,52 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       }
     };
 
+    const handleLongPress = () => {
+      Clipboard.setString(item.text);
+      ToastAndroid.show('Copied to clipboard', ToastAndroid.SHORT);
+    };
+
+
+
     return (
+      <View>
 
+        <View
+          className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
+            } ${isHighlighted ? 'border-2 border-yellow-400' : ''}`}
+        >
 
-      <View
-        className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
-          } ${isHighlighted ? 'border-2 border-yellow-400' : ''}`}
-      >
-
-        {item.replyTo && (
-          <TouchableOpacity onPress={handleScrollToReply}>
-            <View className="mb-1 border-l-2 border-white pl-2">
-              <Text className="text-white text-xs italic">Reply: {getTextfromId(item.replyTo)}</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-        {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
-        <Text className="text-white">{item.text}</Text>
-        <View className="flex-row justify-between mt-1">
-          <Text className="text-xs text-gray-300">
-            {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-          <View className="flex-row gap-x-2">
-            <TouchableOpacity onPress={() => handleReply(item)}>
-              <Ionicons name="return-up-back-outline" size={16} color="white" />
+          {item.replyTo && (
+            <TouchableOpacity onPress={handleScrollToReply}>
+              <View className="mb-1 border-l-2 border-white pl-2">
+                <Text className="text-white text-xs italic">Reply: {getTextfromId(item.replyTo)}</Text>
+              </View>
             </TouchableOpacity>
-            {isMine && (
-              <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                <Ionicons name="trash-outline" size={16} color="white" />
+          )}
+          {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
+          <Pressable onLongPress={handleLongPress}>
+          <Text className="text-white">{item.text}</Text>
+          </Pressable>
+          <View className="flex-row justify-between mt-1">
+            <Text className="text-xs text-gray-300">
+              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+            <View className="flex-row gap-x-2">
+              <TouchableOpacity onPress={() => handleReply(item)}>
+                <Ionicons name="return-up-back-outline" size={16} color="white" />
               </TouchableOpacity>
-            )}
-            {isMine && item.delivered && !item.seen && (
-              <Ionicons name="checkmark" size={16} color="white" />
-            )}
-            {isMine && item.seen && (
-              <Ionicons name="checkmark-done" size={16} color="white" />
-            )}
+              {isMine && (
+                <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                  <Ionicons name="trash-outline" size={16} color="white" />
+                </TouchableOpacity>
+              )}
+              {isMine && item.delivered && !item.seen && (
+                <Ionicons name="checkmark" size={16} color="white" />
+              )}
+              {isMine && item.seen && (
+                <Ionicons name="checkmark-done" size={16} color="white" />
+              )}
+            </View>
           </View>
         </View>
       </View>
@@ -776,15 +916,15 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
       <FlatList
         ref={flatListRef}
-        data={messages}
+        data={decoratedMessages}
         inverted={true}
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
         initialNumToRender={10} // Optimize for large lists
         onEndReached={onEndReached}
-        onEndReachedThreshold={0.1}
-        ListFooterComponent={loadingMore && messages.length >= 20 ? <ActivityIndicator /> : null}
+        onEndReachedThreshold={0.2}
+        ListFooterComponent={loadingMore ? <ActivityIndicator /> : null}
         onScrollToIndexFailed={({ index }) => {
           console.log('Scroll failed. Retrying index:', index);
           setTimeout(() => {
@@ -901,6 +1041,16 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
             onPress={() => setModalVisible(false)}
           >
             <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 40, left: 20, zIndex: 1 }}
+            onPress={() => {
+              if (selectedMedia) {
+                downloadAndSaveToGallery(selectedMedia, getFileNameFromUrl(selectedMedia), pressedFileExt === 'mp4' || pressedFileExt === 'mov' ? 'video' : 'photo');
+              }
+            }}
+          >
+            <Ionicons name="download" size={32} color="white" />
           </TouchableOpacity>
           {pressedFileExt === 'mp4' || pressedFileExt === 'mov' ? (
             <Video
