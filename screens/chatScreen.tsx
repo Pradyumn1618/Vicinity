@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useLayoutEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator,ToastAndroid,PermissionsAndroid, Pressable } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator, ToastAndroid, PermissionsAndroid, Pressable } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc } from '@react-native-firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject, FirebaseStorageTypes } from '@react-native-firebase/storage';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, FirebaseStorageTypes } from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 // import socket from '../config/socket';
 import Video from 'react-native-video'; // For video rendering
@@ -21,16 +21,29 @@ import moment from 'moment';
 import RNFS from 'react-native-fs';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import Clipboard from '@react-native-clipboard/clipboard';
+import ImageViewing from "react-native-image-viewing";
+
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages } from '../helper/databaseHelper';
+
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB } from '../helper/databaseHelper';
+import { DownloadHeader } from '../components/downLoad';
+
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from 'react-native-reanimated';
+
+
 
 
 
 
 type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
 
-export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
+export default function ChatScreen({ route, navigation }: { route: ChatScreenRouteProp, navigation: any }) {
   const { chatId, receiver } = route.params;
   const socket = useSocket();
   interface Message {
@@ -62,11 +75,44 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [pressedFileExt, setPressedFileExt] = useState<string | null>(null);
   const [receiverDetails, setReceiverDetails] = useState<any>(null);
   const [unreadTimestamp, setUnreadTimestamp] = useState<number | null>(null);
-  // const [unreadIndex, setUnreadIndex] = useState<number | null>(null);
+  const [unreadIndex, setUnreadIndex] = useState<number | null>(null);
   const receiverDetailsRef = useRef(receiverDetails);
   const uploadTaskRef = useRef<FirebaseStorageTypes.Task | null>(null);
   const [showDivider, setShowDivider] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [typing, setTyping] = useState(false);
+  const timestampToshowDivider = useRef<number | null>(null);
+  const [searchText, setSearchText] = useState('');
+  // const [showDatePicker, setShowDatePicker] = useState(false);
+  // const [selectedDate, setSelectedDate] = useState(undefined);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // const showSearchBar = useSharedValue(false);
+
+// const receiverStyle = useAnimatedStyle(() => ({
+//   opacity: withTiming(showSearchBar.value ? 0 : 1, { duration: 200 }),
+//   height: withTiming(showSearchBar.value ? 0 : 60, { duration: 200 }),
+// }));
+
+// const searchBarStyle = useAnimatedStyle(() => {
+//   return {
+//     opacity: withTiming(showSearchBar.value ? 1 : 0, { duration: 200 }),
+//     height: showSearchBar.value
+//       ? 'auto'  // Let it expand naturally when shown
+//       : 0,
+//     overflow: 'hidden',
+//   };
+// });
+// const toggleSearch = () => {
+//   showSearchBar.value = !showSearchBar.value;
+//   if (!showSearchBar.value) {
+//     setSearchText('');
+//     setSelectedDate(undefined);
+//   }
+// };
+
+
+
 
 
 
@@ -88,7 +134,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE);
       }
     };
-  
+
     const hasPermission = await getCheckPermissionPromise();
     if (hasPermission) {
       return true;
@@ -101,19 +147,19 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         ]).then(
           (statuses) =>
             statuses[PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES] ===
-              PermissionsAndroid.RESULTS.GRANTED &&
+            PermissionsAndroid.RESULTS.GRANTED &&
             statuses[PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO] ===
-              PermissionsAndroid.RESULTS.GRANTED,
+            PermissionsAndroid.RESULTS.GRANTED,
         );
       } else {
         return PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE).then((status) => status === PermissionsAndroid.RESULTS.GRANTED);
       }
     };
-  
+
     return await getRequestPermissionPromise();
   }
 
-  async function downloadAndSaveToGallery(url:string, filename = 'myfile.jpg', mediaType = 'photo') {
+  const downloadAndSaveToGallery = useCallback(async (url: string, filename = 'myfile.jpg') => {
     const hasPermission = await hasAndroidPermission();
     if (!hasPermission) {
       console.log('Permission denied');
@@ -122,18 +168,18 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     }
     try {
       const localPath = `${RNFS.TemporaryDirectoryPath}/${filename}`;
-  
+
       // Step 1: Download file
       const result = await RNFS.downloadFile({
         fromUrl: url,
         toFile: localPath,
       }).promise;
-  
+
       if (result.statusCode === 200) {
         // Step 2: Save to gallery
         const savedUri = await CameraRoll.saveAsset(`file://${localPath}`);
         ToastAndroid.show('Saved to gallery', ToastAndroid.SHORT);
-  
+
         console.log('Saved to gallery at:', savedUri);
         return savedUri;
       } else {
@@ -143,14 +189,27 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       console.error('Failed to save media:', err);
       throw err;
     }
-  }
+  }, []);
 
-  const getFileNameFromUrl = (url) => {
-    const extension = url.split('.').pop().split(/#|\?/)[0]; // jpg, mp4, etc.
+  const getFileNameFromUrl = (url: string) => {
+    const extension = url.split('.').pop()?.split(/#|\?/)[0]; // jpg, mp4, etc.
     const uniqueName = `chat_media_${Date.now()}.${extension}`;
     return uniqueName;
   };
-  
+
+  // useEffect(() => {
+  // const filterMessages = async () => {
+  //   if (searchText.trim()==='') {
+  //     return messages;
+  //   }
+  //   const lowerCaseSearchText = searchText.toLowerCase();
+  //   const result = await filterMessagesDB(lowerCaseSearchText,chatId);
+  //   console.log('Filtered messages:', result);
+  //   setMessages(result);
+  // }
+  //   filterMessages();
+  // }, [chatId, messages, searchText, setMessages]);
+
 
   const handleMediaPress = (uri: string) => {
     // Check if the media is a video
@@ -165,6 +224,24 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const currentUserId = auth.currentUser?.uid;
   const db = getFirestore();
   const storage = getStorage();
+
+  useEffect(() => {
+    socket.on('typing', (data: { chatId: string }) => {
+      if (data.chatId === chatId) {
+        setTyping(true);
+      }
+    });
+
+    socket.on('StoppedTyping', (data: { chatId: string; }) => {
+      if (data.chatId === chatId) {
+        setTyping(false);
+      }
+    });
+    return () => {
+      socket.off('typing');
+      socket.off('StoppedTyping');
+    }
+  }, [chatId, receiver, socket])
 
   useEffect(() => {
     socket.emit('get_status', { userId: receiver });
@@ -206,6 +283,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
     const fetchunreadTimestamp = async () => {
       const timestamp = await getUnreadTimestamp(chatId);
+      timestampToshowDivider.current = timestamp;
       if (timestamp) {
         setUnreadTimestamp(timestamp);
       }
@@ -234,25 +312,63 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     fetchunreadTimestamp();
   }, [receiver, db, chatId]);
 
-  // useEffect(() => {
-  //   if (unreadTimestamp) {
-  //     const index = messages.findIndex(msg => msg.timestamp > unreadTimestamp && msg.sender === receiver);
-  //     if (index !== -1) {
-  //       setUnreadIndex(index);
-  //       setShowDivider(true);
-  //     }
-  //   }
-  // }, [messages, unreadTimestamp, receiver]);
+  type DividerItem = {
+    type: 'divider';
+    date: number;
+    id: string;
+  };
+  type DecoratedMessage = Message & { type: 'message' } | DividerItem;
 
-  // useEffect(() => {
-  //   if (unreadIndex !== null && flatListRef.current) {
-  //     flatListRef.current.scrollToIndex({
-  //       index: unreadIndex,
-  //       viewPosition: 0.5, // centers it
-  //       animated: true,
-  //     });
-  //   }
-  // }, [unreadIndex]);
+  const formatMessagesWithDateDividers = useCallback((msgs: Message[]): DecoratedMessage[] => {
+    const formatted: DecoratedMessage[] = [];
+    let lastDate: moment.Moment | null = null;
+
+    const reversedMsgs = [...msgs].reverse();
+
+    for (const msg of reversedMsgs) {
+      const msgDate = moment(msg.timestamp).local().startOf('day');
+      if (!lastDate || !msgDate.isSame(lastDate)) {
+        formatted.push({
+          type: 'divider',
+          date: msg.timestamp,
+          id: msg.id + nanoid(6),
+        });
+        lastDate = msgDate;
+      }
+      formatted.push({ ...msg, type: 'message' });
+    }
+
+    return formatted.reverse();
+  }, []);
+
+
+
+
+
+  const decoratedMessages = useMemo(() => {
+    return formatMessagesWithDateDividers(messages);
+  }, [messages, formatMessagesWithDateDividers]);
+
+
+  useEffect(() => {
+    if (timestampToshowDivider.current && decoratedMessages.length > 0) {
+      const index = decoratedMessages.findIndex(msg => msg.type === 'message' && msg.timestamp > timestampToshowDivider.current && msg.sender === receiver);
+      if (index !== -1) {
+        setUnreadIndex(index);
+        setShowDivider(true);
+      }
+    }
+  }, [decoratedMessages, receiver]);
+
+  useEffect(() => {
+    if (unreadIndex !== null && flatListRef.current) {
+      flatListRef.current.scrollToIndex({
+        index: unreadIndex,
+        viewPosition: 0.5, // centers it
+        animated: true,
+      });
+    }
+  }, [unreadIndex]);
 
 
   useLayoutEffect(() => {
@@ -506,13 +622,33 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         const uploadTask = uploadBytesResumable(storageRef, blob);
         uploadTaskRef.current = uploadTask;
 
-        uploadTask.on('state_changed', (snapshot) => {
-          const progress = snapshot.bytesTransferred / snapshot.totalBytes;
-          setUploadProgress(progress);
-        });
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const progress = snapshot.bytesTransferred / snapshot.totalBytes;
+            setUploadProgress(progress);
+          },
+          (error) => {
+            if (error.code === 'storage/canceled') {
+              console.log('Upload canceled');
+            } else {
+              console.error('Upload failed:', error);
+            }
+            setUploading(false);
+            setUploadProgress(0);
+            setAttachedMedia(null);
+            uploadTaskRef.current = null;
+          },
+          async () => {
+            console.log('Upload complete');
+            media = await getDownloadURL(storageRef);
+            setUploading(false);
+            setUploadProgress(0);
+            uploadTaskRef.current = null;
+          }
+        );
 
         await uploadTask;
-        media = await getDownloadURL(storageRef);
         // setMedia(mediaUrl);
         setUploading(false);
         setAttachedMedia(null);
@@ -634,40 +770,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     inputRef.current?.focus();
   };
 
-  type DividerItem = {
-    type: 'divider';
-    date: number;
-    id: string;
-  };
-  type DecoratedMessage = Message & { type: 'message' } | DividerItem;
-
-  const formatMessagesWithDateDividers = useCallback((msgs: Message[]): DecoratedMessage[] => {
-    const formatted: DecoratedMessage[] = [];
-    let lastDate: moment.Moment | null = null;
-
-    const reversedMsgs = [...msgs].reverse();
-
-    for (const msg of reversedMsgs) {
-      const msgDate = moment(msg.timestamp).local().startOf('day');
-      if (!lastDate || !msgDate.isSame(lastDate)) {
-        formatted.push({
-          type: 'divider',
-          date: msg.timestamp,
-          id: msg.id + nanoid(6),
-        });
-        lastDate = msgDate;
-      }
-      formatted.push({ ...msg, type: 'message' });
-    }
-
-    return formatted.reverse();
-  }, []);
-
-  const decoratedMessages = useMemo(() => {
-    return formatMessagesWithDateDividers(messages);
-  }, [messages, formatMessagesWithDateDividers]);
-
-
 
 
   const messageIdToIndexMap = useMemo(() => {
@@ -720,20 +822,28 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
       if (messageDoc.exists) {
         const messageData = messageDoc.data();
+        // console.log('Message data:', messageData);
 
         // Check if the message has media
         if (messageData?.media) {
-          const mediaUrl = messageData.media;
+          const userToken = await auth.currentUser?.getIdToken();
 
-          // Extract the file path from the media URL
-          const filePath = decodeURIComponent(mediaUrl.split('/o/')[1].split('?')[0]);
+          try {
+            await fetch("https://vicinity-backend.onrender.com/delete-media", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${userToken}`, // Firebase ID token
+              },
+              body: JSON.stringify({
+                media: messageData.media,
+                messageId: messageId,
+              }),
+            });
+          } catch (error) {
+            console.error('Error deleting media:', error);
+          }
 
-          // Reference to the file in Firebase Storage
-          const storageRef = ref(storage, filePath);
-
-          // Delete the file from Firebase Storage
-          await deleteObject(storageRef);
-          console.log('Media deleted successfully from storage');
         }
 
         // Delete the message from Firestore
@@ -749,10 +859,26 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     }
   };
 
+  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  const handleTyping = (text: string) => {
+    if (text.trim()) {
+      socket.emit('typing', { chatId: chatId, receiver: receiver });
+
+    }
+
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(() => {
+      socket.emit('StoppedTyping', { chatId: chatId, receiver: receiver });
+    }, 2000);
+
+  }
+
 
   const renderMedia = (media: string, onPress?: () => void) => {
     const cleanUrl = media.split('?')[0].toLowerCase();
     const ext = cleanUrl.substring(cleanUrl.lastIndexOf('.') + 1);
+
 
     const isVideo = ext === 'mp4' || ext === 'mov';
 
@@ -795,8 +921,23 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     return message ? message.text : '';
   };
 
+  const MemoizedHeader = useCallback(() => {
+    return (
+      <DownloadHeader
+        visible={modalVisible}
+        onDownload={() =>
+          downloadAndSaveToGallery(
+            selectedMedia || '',
+            getFileNameFromUrl(selectedMedia || '')
+          )
+        }
+      />);
+  }, [selectedMedia, downloadAndSaveToGallery, modalVisible]);
 
-  const renderMessage = ({ item }: { item: DecoratedMessage }) => {
+
+
+  const renderMessage = ({ item, index }: { item: DecoratedMessage, index: Number }) => {
+
     if (item.type === 'divider') {
       const label = moment(item.date).calendar(null, {
         sameDay: '[Today]',
@@ -816,6 +957,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
     const isMine = item.sender === currentUserId;
     const isHighlighted = item.id === highlightedMessageId;
+    const ToshowDivider = index === unreadIndex;
 
     const scrollToMessageById = (messageId: string) => {
       const targetIndex = messageIdToIndexMap[messageId];
@@ -851,6 +993,13 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
     return (
       <View>
+        <View>
+          {showDivider && ToshowDivider && (
+            <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm mb-2">
+              <Text className="text-xs text-gray-800 dark:text-gray-200 font-large">New Messages</Text>
+            </View>
+          )}
+        </View>
 
         <View
           className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
@@ -866,7 +1015,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
           )}
           {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
           <Pressable onLongPress={handleLongPress}>
-          <Text className="text-white">{item.text}</Text>
+            <Text className="text-white">{item.text}</Text>
           </Pressable>
           <View className="flex-row justify-between mt-1">
             <Text className="text-xs text-gray-300">
@@ -903,16 +1052,152 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
-      {receiverDetails &&
-        <View style={styles.statusBar}>
-          <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
-          <View style={styles.userInfo}>
-            <Text style={styles.username}>{receiverDetails.username}</Text>
-            {receiverDetails.status && <Text style={styles.status}>{receiverDetails.status}</Text>}
-            {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
-          </View>
+      {isSearching ? (
+  <View className="px-4 pt-3 bg-black">
+    <View className="flex-row items-center bg-zinc-800 rounded-xl px-3 py-2">
+      <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
+      <TextInput
+        placeholder="Search messages"
+        placeholderTextColor="#ccc"
+        value={searchText}
+        onChangeText={setSearchText}
+        className="flex-1 text-white"
+        autoFocus
+      />
+      <TouchableOpacity onPress={() => {
+        setSearchText('');
+        // setSelectedDate(null);
+        setIsSearching(false);
+      }}>
+        <Ionicons name="close" size={20} color="white" />
+      </TouchableOpacity>
+    </View>
+
+    {/* <TouchableOpacity
+      onPress={() => setShowDatePicker(true)}
+      className="mt-2 p-2 rounded bg-zinc-700 flex-row items-center justify-center"
+    >
+      <Ionicons name="calendar" size={18} color="white" style={{ marginRight: 6 }} />
+      <Text style={{ color: 'white' }}>
+        {selectedDate ? selectedDate.toDateString() : 'Filter by Date'}
+      </Text>
+    </TouchableOpacity>
+
+    {showDatePicker && (
+      <DateTimePicker
+        value={selectedDate || new Date()}
+        mode="date"
+        display="default"
+        onChange={(event, date) => {
+          setShowDatePicker(false);
+          if (date) setSelectedDate(date);
+        }}
+      />
+    )} */}
+  </View>
+) : (
+  receiverDetails && (
+    <TouchableOpacity
+      onPress={() => {
+        navigation.navigate('ChatUserProfile', {
+          chatId: chatId,
+          receiverDetails: receiverDetails,
+        });
+      }}
+    >
+      <View style={styles.statusBar}>
+        <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
+        <View style={styles.userInfo}>
+          <Text style={styles.username}>{receiverDetails.username}</Text>
+          {typing && <Text style={styles.status}>Typing...</Text>}
+          {receiverDetails.status && !typing && <Text style={styles.status}>{receiverDetails.status}</Text>}
+          {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
         </View>
-      }
+        <TouchableOpacity
+          onPress={() => setIsSearching(true)}
+          style={{ position: 'absolute', right: 16 }}
+        >
+          <Ionicons name="search" size={20} color="white" />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  )
+)}
+{/* {receiverDetails && (
+<Animated.View style={[receiverStyle]}>
+  <TouchableOpacity
+    onPress={() => {
+      navigation.navigate('ChatUserProfile', {
+        chatId: chatId,
+        receiverDetails: receiverDetails,
+      });
+    }}
+  >
+    <View style={styles.statusBar}>
+      <Image source={{ uri: receiverDetails.profilePic }} style={styles.profilePic} />
+      <View style={styles.userInfo}>
+        <Text style={styles.username}>{receiverDetails.username}</Text>
+        {typing && <Text style={styles.status}>Typing...</Text>}
+        {receiverDetails.status && !typing && (
+          <Text style={styles.status}>{receiverDetails.status}</Text>
+        )}
+      </View>
+      <TouchableOpacity
+        onPress={toggleSearch}
+        style={{ position: 'absolute', right: 16 }}
+      >
+        <Ionicons name="search" size={20} color="white" />
+      </TouchableOpacity>
+    </View>
+  </TouchableOpacity>
+</Animated.View>)}
+
+{showSearchBar.value && (
+
+<Animated.View style={[searchBarStyle]}>
+  <View className="px-4 pt-3 bg-black">
+    <View className="flex-row items-center bg-zinc-800 rounded-xl px-3 py-2">
+      <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
+      <TextInput
+        placeholder="Search messages"
+        placeholderTextColor="#ccc"
+        value={searchText}
+        onChangeText={setSearchText}
+        className="flex-1 text-white"
+        autoFocus
+      />
+      <TouchableOpacity onPress={toggleSearch}>
+        <Ionicons name="close" size={20} color="white" />
+      </TouchableOpacity>
+    </View>
+
+    <TouchableOpacity
+      onPress={() => setShowDatePicker(true)}
+      className="mt-2 p-2 rounded bg-zinc-700 flex-row items-center justify-center"
+    >
+      <Ionicons name="calendar" size={18} color="white" style={{ marginRight: 6 }} />
+      <Text style={{ color: 'white' }}>
+        {selectedDate ? selectedDate.toDateString() : 'Filter by Date'}
+      </Text>
+    </TouchableOpacity>
+
+    {showDatePicker && (
+      <DateTimePicker
+        value={selectedDate || new Date()}
+        mode="date"
+        display="default"
+        onChange={(event, date) => {
+          setShowDatePicker(false);
+          if (date) setSelectedDate(date);
+        }}
+      />
+    )}
+  </View>
+</Animated.View>)
+} */}
+
+
+
 
       <FlatList
         ref={flatListRef}
@@ -993,7 +1278,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
           <TextInput
             ref={inputRef}
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={(text) => { setInputText(text); handleTyping(text); }}
             placeholder="Type a message"
             placeholderTextColor="#aaa"
             className="flex-1 bg-zinc-800 text-white px-4 py-2 rounded-xl max-h-[100px]"
@@ -1025,6 +1310,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
                 setAttachedMedia(null);
                 setUploadProgress(0);
               }}
+              disabled={!uploadTaskRef.current}
               className="mt-2"
             >
               <Text style={{ color: 'red' }}>Cancel Upload</Text>
@@ -1034,7 +1320,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
       </View>
 
-      <Modal visible={modalVisible} transparent={true}>
+      <Modal visible={modalVisible && (pressedFileExt === 'mp4' || pressedFileExt === 'mov')} transparent={true}>
         <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
           <TouchableOpacity
             style={{ position: 'absolute', top: 40, right: 20, zIndex: 1 }}
@@ -1046,34 +1332,36 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
             style={{ position: 'absolute', top: 40, left: 20, zIndex: 1 }}
             onPress={() => {
               if (selectedMedia) {
-                downloadAndSaveToGallery(selectedMedia, getFileNameFromUrl(selectedMedia), pressedFileExt === 'mp4' || pressedFileExt === 'mov' ? 'video' : 'photo');
+                downloadAndSaveToGallery(selectedMedia, getFileNameFromUrl(selectedMedia));
               }
             }}
           >
             <Ionicons name="download" size={32} color="white" />
           </TouchableOpacity>
-          {pressedFileExt === 'mp4' || pressedFileExt === 'mov' ? (
-            <Video
-              // source={{ uri: media }}
-              // style={{ width: 220, height: 280, borderRadius: 12 }}
-              // resizeMode="cover"
-              paused={false}
-              source={{ uri: selectedMedia || undefined }}
-              style={{ width: '100%', height: '100%' }}
-              controls={true}
-              resizeMode="contain"
-              // paused={false}
-              onError={(error) => console.error('Video error:', error)} // Debugging video issues
-            />
-          ) : (
-            <FastImage
-              source={{ uri: selectedMedia || undefined }}
-              style={{ width: '100%', height: '80%' }}
-              resizeMode={FastImage.resizeMode.contain}
-            />
-          )}
+
+          <Video
+            source={{ uri: selectedMedia || undefined }}
+            style={{ width: '100%', height: '100%' }}
+            controls={true}
+            resizeMode="contain"
+            paused={false}
+            onError={(error) => console.error('Video error:', error)}
+          />
+
+
         </View>
       </Modal>
+      <ImageViewing
+        images={[{ uri: selectedMedia || '' }]}
+        imageIndex={0}
+        visible={modalVisible && (pressedFileExt === 'jpg' || pressedFileExt === 'jpeg' || pressedFileExt === 'png' || pressedFileExt === 'gif')}
+        onRequestClose={() => setModalVisible(false)}
+        swipeToCloseEnabled={true}
+        doubleTapToZoomEnabled={true}
+        backgroundColor="black"
+        animationType="fade"
+        HeaderComponent={MemoizedHeader}
+      />
     </KeyboardAvoidingView>
   );
 }

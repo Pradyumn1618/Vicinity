@@ -8,4 +8,12 @@ export type rootStackParamList = {
     UpdateProfile: undefined;
     ChatScreen: { chatId: string; receiver: string };
     Inbox: undefined;
+    ChatUserProfile: {
+        chatId: string;
+        receiverDetails: {
+            profilePic: string;
+            username: string;
+            status: string;
+        };
+    };
 }

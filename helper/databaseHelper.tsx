@@ -337,5 +337,42 @@ export const syncOfflineDeletions = async () => {
     }
 }
 
+export const getMediaFromLocalDB = async (chatId:string,offset: number=0, limit: number) => {
+    const db = await getDBConnection();
+    try {
+        const results = await db.executeSql(
+            'SELECT media, timestamp FROM messages WHERE chatId = ? AND media IS NOT NULL ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+            [chatId, limit, offset]
+        );
+        const rows = results[0].rows;
+        const mediaList = [];
+        for (let i = 0; i < rows.length; i++) {
+            mediaList.push(rows.item(i));
+        }
+        return mediaList;
+    } catch (error) {
+        console.log('Error fetching media from local DB:', error);
+        return [];
+    }
+}
+
+export const filterMessagesDB = async (searchText:string='',chatId:string) => {
+    const db = await getDBConnection();
+    try {
+        const results = await db.executeSql(
+            'SELECT * FROM messages WHERE chatId = ? AND text LIKE ? ORDER BY timestamp DESC',
+            [chatId, `%${searchText}%`]
+        );
+        const rows = results[0].rows;
+        const messages = [];
+        for (let i = 0; i < rows.length; i++) {
+            messages.push(rows.item(i));
+        }
+        return messages;
+    } catch (error) {
+        console.log('Error filtering messages:', error);
+        return [];
+    }
+}
 
 
