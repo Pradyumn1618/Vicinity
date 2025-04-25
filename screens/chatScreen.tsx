@@ -86,6 +86,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   // const [showDatePicker, setShowDatePicker] = useState(false);
   // const [selectedDate, setSelectedDate] = useState(undefined);
   const [isSearching, setIsSearching] = useState(false);
+  const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
 
   // const showSearchBar = useSharedValue(false);
 
@@ -197,18 +198,18 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     return uniqueName;
   };
 
-  // useEffect(() => {
-  // const filterMessages = async () => {
-  //   if (searchText.trim()==='') {
-  //     return messages;
-  //   }
-  //   const lowerCaseSearchText = searchText.toLowerCase();
-  //   const result = await filterMessagesDB(lowerCaseSearchText,chatId);
-  //   console.log('Filtered messages:', result);
-  //   setMessages(result);
-  // }
-  //   filterMessages();
-  // }, [chatId, messages, searchText, setMessages]);
+  useEffect(() => {
+  const filterMessages = async () => {
+    if (searchText.trim() === '') {
+      return messages;
+    }
+    const lowerCaseSearchText = searchText.toLowerCase();
+    const result = await filterMessagesDB(lowerCaseSearchText,chatId);
+    console.log('Filtered messages:', result);
+    setFilteredMessages(result);
+  }
+    filterMessages();
+  }, [chatId, messages, searchText, setFilteredMessages]);
 
 
   const handleMediaPress = (uri: string) => {
@@ -346,8 +347,8 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
 
   const decoratedMessages = useMemo(() => {
-    return formatMessagesWithDateDividers(messages);
-  }, [messages, formatMessagesWithDateDividers]);
+    return searchText.trim() === '' ? formatMessagesWithDateDividers(messages) : formatMessagesWithDateDividers(filteredMessages);
+  }, [messages, formatMessagesWithDateDividers, searchText, filteredMessages]);
 
 
   useEffect(() => {

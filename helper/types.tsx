@@ -16,4 +16,7 @@ export type rootStackParamList = {
             status: string;
         };
     };
+    GroupChatScreen: {groupId:string};
+    CreateGroupScreen: undefined;
+    GroupDetailsScreen: { groupId: string };
 }
