@@ -23,21 +23,9 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import Clipboard from '@react-native-clipboard/clipboard';
 import ImageViewing from "react-native-image-viewing";
 
-import DateTimePicker from '@react-native-community/datetimepicker';
-
-
 
 import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB } from '../helper/databaseHelper';
 import { DownloadHeader } from '../components/downLoad';
-
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-} from 'react-native-reanimated';
-
-
-
 
 
 
@@ -88,39 +76,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   const [isSearching, setIsSearching] = useState(false);
   const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
 
-  // const showSearchBar = useSharedValue(false);
-
-// const receiverStyle = useAnimatedStyle(() => ({
-//   opacity: withTiming(showSearchBar.value ? 0 : 1, { duration: 200 }),
-//   height: withTiming(showSearchBar.value ? 0 : 60, { duration: 200 }),
-// }));
-
-// const searchBarStyle = useAnimatedStyle(() => {
-//   return {
-//     opacity: withTiming(showSearchBar.value ? 1 : 0, { duration: 200 }),
-//     height: showSearchBar.value
-//       ? 'auto'  // Let it expand naturally when shown
-//       : 0,
-//     overflow: 'hidden',
-//   };
-// });
-// const toggleSearch = () => {
-//   showSearchBar.value = !showSearchBar.value;
-//   if (!showSearchBar.value) {
-//     setSearchText('');
-//     setSelectedDate(undefined);
-//   }
-// };
-
-
-
-
-
-
-
-  // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  // const [initialScrollDone, setInitialScrollDone] = useState(false);
-
+  
   async function hasAndroidPermission() {
     const getCheckPermissionPromise = () => {
       if (Number(Platform.Version) >= 33) {

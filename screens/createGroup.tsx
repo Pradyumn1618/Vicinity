@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, FlatList } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, FlatList, Alert } from 'react-native';
 import { Asset } from 'react-native-image-picker';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
@@ -9,12 +9,15 @@ import storage from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Modal from 'react-native-modal';
 import {v4 as uuidv4} from 'uuid';
+import { sendNotification } from '../functions/lib';
+import { sendAddedToGroupNotification } from '../helper/sendNotification';
 
 
 interface User {
     id: string;
     username: string;
     photoURL: string;
+    fcmToken?: string;
     }
 
 export default function CreateGroupScreen({ navigation }) {
@@ -49,7 +52,7 @@ export default function CreateGroupScreen({ navigation }) {
       .limit(10)
       .get();
 
-    const users = snapshot.docs.map(doc => ({ id: doc.id, photoURL:doc.data().profilePic, username:doc.data().username }));
+    const users = snapshot.docs.map(doc => ({ id: doc.id, photoURL:doc.data().profilePic, username:doc.data().username, fcmToken:doc.data().fcmToken }));
     setSearchResults(users);
   };
 
@@ -58,6 +61,10 @@ export default function CreateGroupScreen({ navigation }) {
     if (exists) {
       setSelectedUsers((prev) => prev.filter((u) => u.id !== user.id));
     } else {
+      if(selectedUsers.length >= 200){
+        Alert.alert('Limit Reached', 'You can only add up to 200 members to a group.');
+        return;
+      }
       setSelectedUsers((prev) => [...prev, user]);
     }
   };
@@ -107,7 +114,7 @@ export default function CreateGroupScreen({ navigation }) {
 
     await batch.commit();
 
-    
+    sendAddedToGroupNotification(selectedUsers.map((u) => u.fcmToken).filter((token): token is string => token !== undefined), groupName, groupId, userId || '');
 
     navigation.replace('GroupChatScreen', { groupId: groupId });
 }catch(error){

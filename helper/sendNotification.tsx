@@ -76,4 +76,54 @@ export const sendDeleteNotification = async (fcmTokens: string[], messageId: str
   }
 }
 
+export const sendGroupNotification = async (fcmTokens: string[], message ,groupName:String) => {
+  if (fcmTokens.length === 0) return;
+  
+  try {
+    const res = await sendNotification({
+      token: fcmTokens, // pass array
+      title: `${groupName}:${message.senderName} sent a message`,
+      body: message.text,
+      data: {
+        purpose: 'group',
+        sender: String(message.sender),
+        id: String(message.id),
+        groupId: String(message.groupId),
+      }
+    });
+    console.log("Notification sent:", res.data);
+  } catch (err) {
+    console.error("Error sending notification:", err);
+  }
+}
+
+export const sendAddedToGroupNotification = async (fcmTokens: string[], groupName: string, groupId: string, addedBy: string) => {
+  if (fcmTokens.length === 0) return;
+  const db = getFirestore();
+  const senderRef = doc(db, 'users', addedBy);
+  const senderSnap = await getDoc(senderRef);
+  const senderName = senderSnap.data()?.username;
+  if (!senderName) {
+    console.error("Sender name not found");
+    return;
+  }
+
+  try {
+    const res = await sendNotification({
+      token: fcmTokens, // pass array 
+      title: `${groupName}:${senderName} added you to the group`,
+      body: "Click to view the group",
+      data: {
+        purpose: 'addedToGroup',
+        customKey: groupId,
+        sender: String(addedBy),
+        groupId: String(groupId),
+      }
+    });
+    console.log("Notification sent:", res.data);
+  } catch (err) {
+    console.error("Error sending notification:", err);
+  }
+}
+
 export default sendNotificationAsync;
