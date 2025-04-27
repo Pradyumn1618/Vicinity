@@ -76,7 +76,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   const [isSearching, setIsSearching] = useState(false);
   const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
 
-  
+
   async function hasAndroidPermission() {
     const getCheckPermissionPromise = () => {
       if (Number(Platform.Version) >= 33) {
@@ -155,15 +155,15 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   };
 
   useEffect(() => {
-  const filterMessages = async () => {
-    if (searchText.trim() === '') {
-      return messages;
+    const filterMessages = async () => {
+      if (searchText.trim() === '') {
+        return messages;
+      }
+      const lowerCaseSearchText = searchText.toLowerCase();
+      const result = await filterMessagesDB(lowerCaseSearchText, chatId);
+      console.log('Filtered messages:', result);
+      setFilteredMessages(result);
     }
-    const lowerCaseSearchText = searchText.toLowerCase();
-    const result = await filterMessagesDB(lowerCaseSearchText,chatId);
-    console.log('Filtered messages:', result);
-    setFilteredMessages(result);
-  }
     filterMessages();
   }, [chatId, messages, searchText, setFilteredMessages]);
 
@@ -225,7 +225,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       console.log('getting receiver details')
       const details = await getReceiver(chatId);
       console.log('details', details);
-      if(!details) return;
+      if (!details) return;
       setReceiverDetails((prev: any) => ({
         ...prev,
         username: details.username,
@@ -237,7 +237,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
 
   useReceiverStatus(receiver, setReceiverDetails);
-  useEffect(() => {
+  useLayoutEffect(() => {
 
     const fetchunreadTimestamp = async () => {
       const timestamp = await getUnreadTimestamp(chatId);
@@ -438,14 +438,15 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         console.error('Failed to sync missed messages:', err);
       }
     };
-    const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
+    const cachedMessages = getMessages(chatId, MESSAGES_PAGE_SIZE);
 
     if (lastTimestamp !== null) {
       const checkNetworkAndSync = async () => {
         const netInfo = await NetInfo.fetch();
         if (netInfo.isConnected) {
           syncMissedMessages();
-          syncMessages(cachedMessages, Date.now());
+          const resolvedCachedMessages = await cachedMessages;
+          syncMessages(resolvedCachedMessages, Date.now());
         }
       };
       checkNetworkAndSync();
@@ -477,7 +478,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   }, [chatId, setMessages]); // Only run when chatId changes
 
 
-  
+
 
   const loadMessages = useCallback(async () => {
     if (loadingMore || !hasMore) return;
@@ -563,8 +564,56 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   };
   //let the error be here
 
+  const uploadMedia = async (attachedMedia: { uri: string; filename: string; type: string }) => {
+    try {
+      setUploading(true);
+      const response = await fetch(attachedMedia.uri);
+      const blob = await response.blob();
 
+      const storageRef = ref(storage, `chats/${chatId}/${attachedMedia.filename}`);
+      const uploadTask = uploadBytesResumable(storageRef, blob);
+      uploadTaskRef.current = uploadTask;
 
+      return new Promise<string>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const progress = snapshot.bytesTransferred / snapshot.totalBytes;
+            setUploadProgress(progress);
+          },
+          (error) => {
+            if (error.code === 'storage/cancelled') {
+              console.log('Upload canceled');
+              reject(new Error('Upload canceled'));
+            } else {
+              console.error('Upload failed:', error);
+              reject(error);
+            }
+            setUploading(false);
+            setUploadProgress(0);
+            setAttachedMedia(null);
+            uploadTaskRef.current = null;
+          },
+          async () => {
+            const downloadURL = await getDownloadURL(storageRef);
+            console.log('Upload complete, download URL:', downloadURL);
+            setUploading(false);
+            setUploadProgress(0);
+            setAttachedMedia(null);
+            uploadTaskRef.current = null;
+            resolve(downloadURL);
+          }
+        );
+      });
+    } catch (error) {
+      console.error('Error during upload:', error);
+      setUploading(false);
+      setUploadProgress(0);
+      setAttachedMedia(null);
+      uploadTaskRef.current = null;
+      throw error;
+    }
+  };
 
   const handleSend = async () => {
     if (!inputText.trim() && !attachedMedia) return; // Ensure either text or media is present
@@ -575,58 +624,15 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     console.log('currentUserId:', currentUserId);
     let media = null;
     if (attachedMedia) {
-      console.log('attachedMedia:', attachedMedia);
       try {
-        setUploading(true);
-        const response = await fetch(attachedMedia.uri);
-        const blob = await response.blob();
-        let cancelled = false;
-
-        const storageRef = ref(storage, `chats/${chatId}/${attachedMedia.filename}`);
-        const uploadTask = uploadBytesResumable(storageRef, blob);
-        uploadTaskRef.current = uploadTask;
-
-        uploadTask.on(
-          'state_changed',
-          (snapshot) => {
-            const progress = snapshot.bytesTransferred / snapshot.totalBytes;
-            setUploadProgress(progress);
-          },
-          (error) => {
-            if (error.code === 'storage/canceled') {
-              console.log('Upload canceled');
-            } else {
-              console.error('Upload failed:', error);
-            }
-            setUploading(false);
-            setUploadProgress(0);
-            setAttachedMedia(null);
-            uploadTaskRef.current = null;
-            cancelled = true;
-            return;
-          },
-          async () => {
-            console.log('Upload complete');
-            media = await getDownloadURL(storageRef);
-            setUploading(false);
-            setUploadProgress(0);
-            uploadTaskRef.current = null;
-          }
-        );
-
-        await uploadTask;
-        if (cancelled) {
-          console.log('Upload was cancelled');
-          return;
-        }
-        // setMedia(mediaUrl);
-        setUploading(false);
-        setAttachedMedia(null);
+        media = await uploadMedia(attachedMedia); // Wait for the upload to complete
       } catch (error) {
+        if (error.message === 'Upload canceled') {
+          console.log('Upload was canceled, not sending media.');
+          return; // Exit the function if the upload was canceled
+        }
         console.error('Upload failed:', error);
-        setUploading(false);
-        // setMedia(null);
-        setAttachedMedia(null);
+        Alert.alert('Upload failed', 'Please try again.');
         return;
       }
     }
@@ -650,8 +656,13 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     setInputText('');
     setReplyTo(null);
     let nmessage = { ...messageToDisplay, chatId: chatId, receiver: receiver };
-    sendDMNotification([receiverDetails?.fcmToken], nmessage);
+    let NotiMessage = nmessage;
+    if (!messageToDisplay.text) {
+      NotiMessage = { ...nmessage, text: 'media' };
+    }
+    sendDMNotification([receiverDetails?.fcmToken], NotiMessage);
     socket.emit('send-dm', { message: nmessage });
+    console.log('media:', media);
 
 
 
@@ -710,7 +721,8 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     setReplyTo(null);
     // setMedia(null); // Clear media after sending
     setUploadProgress(0);
-   
+    setShowDivider(false);
+
   };
 
   const handleAttachMedia = async () => {
@@ -964,13 +976,13 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
     return (
       <View>
-        <View>
+        {/* <View>
           {showDivider && ToshowDivider && (
-            <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm mb-2">
+            <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm mb-2 items-center justify-center w-1/2 self-center">
               <Text className="text-xs text-gray-800 dark:text-gray-200 font-large">New Messages</Text>
             </View>
           )}
-        </View>
+        </View> */}
 
         <View
           className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
@@ -1024,27 +1036,27 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       keyboardVerticalOffset={90}
     >
       {isSearching ? (
-  <View className="px-4 pt-3 bg-black">
-    <View className="flex-row items-center bg-zinc-800 rounded-xl px-3 py-2">
-      <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
-      <TextInput
-        placeholder="Search messages"
-        placeholderTextColor="#ccc"
-        value={searchText}
-        onChangeText={setSearchText}
-        className="flex-1 text-white"
-        autoFocus
-      />
-      <TouchableOpacity onPress={() => {
-        setSearchText('');
-        // setSelectedDate(null);
-        setIsSearching(false);
-      }}>
-        <Ionicons name="close" size={20} color="white" />
-      </TouchableOpacity>
-    </View>
+        <View className="px-4 pt-3 bg-black">
+          <View className="flex-row items-center bg-zinc-800 rounded-xl px-3 py-2">
+            <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
+            <TextInput
+              placeholder="Search messages"
+              placeholderTextColor="#ccc"
+              value={searchText}
+              onChangeText={setSearchText}
+              className="flex-1 text-white"
+              autoFocus
+            />
+            <TouchableOpacity onPress={() => {
+              setSearchText('');
+              // setSelectedDate(null);
+              setIsSearching(false);
+            }}>
+              <Ionicons name="close" size={20} color="white" />
+            </TouchableOpacity>
+          </View>
 
-    {/* <TouchableOpacity
+          {/* <TouchableOpacity
       onPress={() => setShowDatePicker(true)}
       className="mt-2 p-2 rounded bg-zinc-700 flex-row items-center justify-center"
     >
@@ -1065,110 +1077,35 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         }}
       />
     )} */}
-  </View>
-) : (
-  receiverDetails && (
-    <TouchableOpacity
-      onPress={() => {
-        navigation.navigate('ChatUserProfile', {
-          chatId: chatId,
-          receiverDetails: receiverDetails,
-        });
-      }}
-    >
-      <View style={styles.statusBar}>
-        <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
-        <View style={styles.userInfo}>
-          <Text style={styles.username}>{receiverDetails.username}</Text>
-          {typing && <Text style={styles.status}>Typing...</Text>}
-          {receiverDetails.status && !typing && <Text style={styles.status}>{receiverDetails.status}</Text>}
-          {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
         </View>
-        <TouchableOpacity
-          onPress={() => setIsSearching(true)}
-          style={{ position: 'absolute', right: 16 }}
-        >
-          <Ionicons name="search" size={20} color="white" />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  )
-)}
-{/* {receiverDetails && (
-<Animated.View style={[receiverStyle]}>
-  <TouchableOpacity
-    onPress={() => {
-      navigation.navigate('ChatUserProfile', {
-        chatId: chatId,
-        receiverDetails: receiverDetails,
-      });
-    }}
-  >
-    <View style={styles.statusBar}>
-      <Image source={{ uri: receiverDetails.profilePic }} style={styles.profilePic} />
-      <View style={styles.userInfo}>
-        <Text style={styles.username}>{receiverDetails.username}</Text>
-        {typing && <Text style={styles.status}>Typing...</Text>}
-        {receiverDetails.status && !typing && (
-          <Text style={styles.status}>{receiverDetails.status}</Text>
-        )}
-      </View>
-      <TouchableOpacity
-        onPress={toggleSearch}
-        style={{ position: 'absolute', right: 16 }}
-      >
-        <Ionicons name="search" size={20} color="white" />
-      </TouchableOpacity>
-    </View>
-  </TouchableOpacity>
-</Animated.View>)}
-
-{showSearchBar.value && (
-
-<Animated.View style={[searchBarStyle]}>
-  <View className="px-4 pt-3 bg-black">
-    <View className="flex-row items-center bg-zinc-800 rounded-xl px-3 py-2">
-      <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
-      <TextInput
-        placeholder="Search messages"
-        placeholderTextColor="#ccc"
-        value={searchText}
-        onChangeText={setSearchText}
-        className="flex-1 text-white"
-        autoFocus
-      />
-      <TouchableOpacity onPress={toggleSearch}>
-        <Ionicons name="close" size={20} color="white" />
-      </TouchableOpacity>
-    </View>
-
-    <TouchableOpacity
-      onPress={() => setShowDatePicker(true)}
-      className="mt-2 p-2 rounded bg-zinc-700 flex-row items-center justify-center"
-    >
-      <Ionicons name="calendar" size={18} color="white" style={{ marginRight: 6 }} />
-      <Text style={{ color: 'white' }}>
-        {selectedDate ? selectedDate.toDateString() : 'Filter by Date'}
-      </Text>
-    </TouchableOpacity>
-
-    {showDatePicker && (
-      <DateTimePicker
-        value={selectedDate || new Date()}
-        mode="date"
-        display="default"
-        onChange={(event, date) => {
-          setShowDatePicker(false);
-          if (date) setSelectedDate(date);
-        }}
-      />
-    )}
-  </View>
-</Animated.View>)
-} */}
-
-
-
+      ) : (
+        receiverDetails && (
+          <TouchableOpacity
+            onPress={() => {
+              navigation.navigate('ChatUserProfile', {
+                chatId: chatId,
+                receiverDetails: receiverDetails,
+              });
+            }}
+          >
+            <View style={styles.statusBar}>
+              <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
+              <View style={styles.userInfo}>
+                <Text style={styles.username}>{receiverDetails.username}</Text>
+                {typing && <Text style={styles.status}>Typing...</Text>}
+                {receiverDetails.status && !typing && <Text style={styles.status}>{receiverDetails.status}</Text>}
+                {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsSearching(true)}
+                style={{ position: 'absolute', right: 16 }}
+              >
+                <Ionicons name="search" size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        )
+      )}
 
       <FlatList
         ref={flatListRef}
@@ -1262,10 +1199,26 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         </View>
         {uploading && (
           <View className="mt-2">
-            <Text style={{ color: 'white' }}>
-              Uploading: {(uploadProgress * 100).toFixed(0)}%
-            </Text>
-            <View style={{ height: 6, backgroundColor: '#444', borderRadius: 6, overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: 'white' }}>
+                Uploading: {(uploadProgress * 100).toFixed(0)}%
+              </Text>
+              {uploadTaskRef.current && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (uploadTaskRef.current) {
+                      uploadTaskRef.current.cancel();
+                      console.log('Upload cancel requested');
+                    }
+                  }}
+                  disabled={!uploadTaskRef.current}
+                  style={{ padding: 4 }}
+                >
+                  <Text style={{ color: 'red' }}>Cancel</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={{ marginTop: 6, height: 6, backgroundColor: '#444', borderRadius: 6, overflow: 'hidden' }}>
               <View
                 style={{
                   width: `${uploadProgress * 100}%`,
@@ -1274,18 +1227,6 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
                 }}
               />
             </View>
-            <TouchableOpacity
-              onPress={() => {
-                uploadTaskRef.current?.cancel();
-                setUploading(false);
-                setAttachedMedia(null);
-                setUploadProgress(0);
-              }}
-              disabled={!uploadTaskRef.current}
-              className="mt-2"
-            >
-              <Text style={{ color: 'red' }}>Cancel Upload</Text>
-            </TouchableOpacity>
           </View>
         )}
 

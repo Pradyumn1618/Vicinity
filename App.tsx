@@ -142,6 +142,9 @@ const App = () => {
 
       const purpose = remoteMessage.data?.purpose;
       const data = remoteMessage.data;
+
+      console.log('data', remoteMessage.data);
+      console.log('currentChatId', currentChatId);
       if (!data) return;
 
       if (purpose === 'dm' && remoteMessage.data) {
@@ -252,13 +255,13 @@ const App = () => {
           onClose={() => setNotificationData(null)}
         />
       )}
-      <NavigationContainer ref={navigationRef}>
-        <ChatProvider>
+      <ChatProvider>
+        <NavigationContainer ref={navigationRef}>
           <SocketProvider>
             <Navigation />
           </SocketProvider>
-        </ChatProvider>
-      </NavigationContainer>
+        </NavigationContainer>
+      </ChatProvider>
     </>
   );
 };
