@@ -75,6 +75,7 @@
     "@react-native/typescript-config": "0.77.1",
     "@types/jest": "^29.5.13",
     "@types/libsodium-wrappers": "^0.7.14",
+    "@types/lodash.debounce": "^4.0.9",
     "@types/ngeohash": "^0.6.8",
     "@types/react": "^18.2.6",
     "@types/react-native": "^0.73.0",
