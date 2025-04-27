@@ -11,7 +11,10 @@ import UpdateProfileScreen from './screens/UpdateProfileScreen.tsx';
 import ChatScreen from './screens/chatScreen.tsx';
 import InboxScreen from './screens/chatMainScreen.tsx';
 import { rootStackParamList } from './helper/types.tsx';
-
+import MediaProfileScreen from './screens/receiverProfile.tsx';
+import CreateGroupScreen from './screens/createGroup.tsx';
+import GroupChatScreen from './screens/groupChatScreen.tsx';
+import GroupDetailsScreen from './screens/groupDetailsScreen.tsx';
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
@@ -31,6 +34,10 @@ const Navigation = () => {
         <Stack.Screen name="UpdateProfile" component={UpdateProfileScreen} />
         <Stack.Screen name="ChatScreen" component={ChatScreen} />
         <Stack.Screen name="Inbox" component={InboxScreen} />
+        <Stack.Screen name="ChatUserProfile" component={MediaProfileScreen} />
+        <Stack.Screen name="CreateGroupScreen" component={CreateGroupScreen}/>
+        <Stack.Screen name="GroupChatScreen" component={GroupChatScreen} />
+        <Stack.Screen name="GroupDetailsScreen" component={GroupDetailsScreen} />
         {/* Add more screens here */}
       </Stack.Navigator>
     // </NavigationContainer>

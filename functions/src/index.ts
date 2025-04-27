@@ -16,8 +16,8 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-export const sendNotification = onCall(async (request) => {
-  const { token, title, body, data, tag } = request.data;
+export const sendDataNotification = onCall(async (request) => {
+  const { token, data } = request.data;
 
   if (!token || !Array.isArray(token) || token.length === 0) {
     throw new functions.https.HttpsError("invalid-argument", "token must be a non-empty array");
@@ -30,13 +30,9 @@ export const sendNotification = onCall(async (request) => {
       try {
         const res = await messaging.send({
           token: t,
-          notification: title || body ? { title, body } : undefined,
           data,
           android: {
-            notification: {
-              tag: tag || "", // if tag is provided, include it
-              // optionally: clickAction, channelId, etc.
-            },
+            priority: "high", // Set priority for Android
           },
         });
         return { token: t, success: true, res };
@@ -50,6 +46,49 @@ export const sendNotification = onCall(async (request) => {
   const successCount = responses.filter((r) => r.success).length;
   const failureCount = responses.length - successCount;
 
+  return {
+    success: true,
+    successCount,
+    failureCount,
+    android: {
+      priority: "high", // Set priority for Android
+    },
+    responses,
+  };
+});
+
+export const sendNotification = onCall(async (request) => {
+  const { token, title, body, data } = request.data;
+  if (!token || !Array.isArray(token) || token.length === 0) {
+    throw new functions.https.HttpsError("invalid-argument", "token must be a non-empty array");
+  }
+  if (!title || !body) {
+    throw new functions.https.HttpsError("invalid-argument", "title and body must be provided");
+  }
+  const messaging = admin.messaging();
+  const responses = await Promise.all(
+    token.map(async (t: string) => {
+      try {
+        const res = await messaging.send({
+          token: t,
+          notification: {
+            title,
+            body,
+          },
+          android: {
+            priority: "high", // Set priority for Android
+          },
+          data,
+        });
+        return { token: t, success: true, res };
+      } catch (err) {
+        console.error(`Error sending to ${t}:`, err);
+        return { token: t, success: false, error: err };
+      }
+    })
+  );
+  const successCount = responses.filter((r) => r.success).length;
+  const failureCount = responses.length - successCount;
   return {
     success: true,
     successCount,

@@ -21,6 +21,9 @@ interface OnboardingScreenProps {
 
 
 export default function OnboardingScreen({ navigation }: OnboardingScreenProps) {
+    // const [loading, setLoading] = useState(false);
+
+
     const checkAuthentication = React.useCallback(() => {
         if (!mmkv.getString('user')) {
             // Use reset instead of navigate to remove the current screen from the stack
@@ -51,6 +54,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             if (!user) return;
 
             // Reference to the user document
+            setLoading(true);
             const userRef = doc(db, "users", user.uid);
             // Get the document data
             const docSnap = await getDoc(userRef);
@@ -64,6 +68,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             } else {
                 console.log("No such document!");
             }
+            setLoading(false);
             // else stay on the current screen to collect username/permissions
         };
 

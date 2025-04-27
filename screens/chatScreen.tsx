@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image } from 'react-native';
+import React, { useState, useRef, useEffect, useMemo, useLayoutEffect, useCallback } from 'react';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator, ToastAndroid, PermissionsAndroid, Pressable } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
-import { getFirestore, collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, deleteDoc, Timestamp, getDocs } from '@react-native-firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from '@react-native-firebase/storage';
+import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc } from '@react-native-firebase/firestore';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, FirebaseStorageTypes } from '@react-native-firebase/storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 // import socket from '../config/socket';
 import Video from 'react-native-video'; // For video rendering
@@ -11,24 +11,27 @@ import FastImage from 'react-native-fast-image'; // For better image and GIF sup
 
 import { RouteProp } from '@react-navigation/native';
 import { Modal } from 'react-native';
-import { clearNotification, sendDeleteNotification, sendDMNotification } from '../helper/sendNotification';
+import { sendDeleteNotification, sendDMNotification } from '../helper/sendNotification';
 import useReceiverStatus from '../helper/receiverStatus';
 import { useSocket } from '../helper/socketProvider';
 import { useChatContext } from '../context/chatContext';
+import NetInfo from '@react-native-community/netinfo';
+import { nanoid } from 'nanoid';
+import moment from 'moment';
+import RNFS from 'react-native-fs';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
+import Clipboard from '@react-native-clipboard/clipboard';
+import ImageViewing from "react-native-image-viewing";
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages,deleteMessage } from '../helper/databaseHelper';
-import * as Keychain from 'react-native-keychain';
-import { decryptMessage, generateSharedSecret, encryptMessage } from '../helper/cryptoUtils';
-// import { set } from 'date-fns';
-// import { get } from 'react-native/Libraries/TurboModule/TurboModuleRegistry';
-// import sodium from 'libsodium-wrappers';
 
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB } from '../helper/databaseHelper';
+import { DownloadHeader } from '../components/downLoad';
 
 
 
 type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
 
-export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
+export default function ChatScreen({ route, navigation }: { route: ChatScreenRouteProp, navigation: any }) {
   const { chatId, receiver } = route.params;
   const socket = useSocket();
   interface Message {
@@ -37,19 +40,18 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     sender: string;
     timestamp: number;
     media?: string | null;
-    replyTo?: { text: string; id: string } | null;
+    replyTo?: string | null;
     delivered?: boolean;
     seen?: boolean;
   }
 
   const { messages, setMessages } = useChatContext();
   const { setCurrentChatId } = useChatContext();
-  const { setChats } = useChatContext();
 
 
 
   const [inputText, setInputText] = useState('');
-  const [replyTo, setReplyTo] = useState<{ text: string; id: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<string | null>(null);
   // const [media, setMedia] = useState<string | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList<any>>(null);
@@ -60,15 +62,111 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const [attachedMedia, setAttachedMedia] = useState<{ uri: string, filename: string, type: string } | null>(null);
   const [pressedFileExt, setPressedFileExt] = useState<string | null>(null);
   const [receiverDetails, setReceiverDetails] = useState<any>(null);
-  const [publicKey, setPublicKey] = useState<string | null>(null);
   const [unreadTimestamp, setUnreadTimestamp] = useState<number | null>(null);
   const [unreadIndex, setUnreadIndex] = useState<number | null>(null);
   const receiverDetailsRef = useRef(receiverDetails);
+  const uploadTaskRef = useRef<FirebaseStorageTypes.Task | null>(null);
+  const [showDivider, setShowDivider] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [typing, setTyping] = useState(false);
+  const timestampToshowDivider = useRef<number | null>(null);
+  const [searchText, setSearchText] = useState('');
+  // const [showDatePicker, setShowDatePicker] = useState(false);
+  // const [selectedDate, setSelectedDate] = useState(undefined);
+  const [isSearching, setIsSearching] = useState(false);
+  const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
 
+  
+  async function hasAndroidPermission() {
+    const getCheckPermissionPromise = () => {
+      if (Number(Platform.Version) >= 33) {
+        return Promise.all([
+          PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES),
+          PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO),
+        ]).then(
+          ([hasReadMediaImagesPermission, hasReadMediaVideoPermission]) =>
+            hasReadMediaImagesPermission && hasReadMediaVideoPermission,
+        );
+      } else {
+        return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE);
+      }
+    };
 
+    const hasPermission = await getCheckPermissionPromise();
+    if (hasPermission) {
+      return true;
+    }
+    const getRequestPermissionPromise = () => {
+      if (Number(Platform.Version) >= 33) {
+        return PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
+          PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+        ]).then(
+          (statuses) =>
+            statuses[PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES] ===
+            PermissionsAndroid.RESULTS.GRANTED &&
+            statuses[PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO] ===
+            PermissionsAndroid.RESULTS.GRANTED,
+        );
+      } else {
+        return PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE).then((status) => status === PermissionsAndroid.RESULTS.GRANTED);
+      }
+    };
 
-  // const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  // const [initialScrollDone, setInitialScrollDone] = useState(false);
+    return await getRequestPermissionPromise();
+  }
+
+  const downloadAndSaveToGallery = useCallback(async (url: string, filename = 'myfile.jpg') => {
+    const hasPermission = await hasAndroidPermission();
+    if (!hasPermission) {
+      console.log('Permission denied');
+      ToastAndroid.show('Permission denied', ToastAndroid.SHORT);
+      return;
+    }
+    try {
+      const localPath = `${RNFS.TemporaryDirectoryPath}/${filename}`;
+
+      // Step 1: Download file
+      const result = await RNFS.downloadFile({
+        fromUrl: url,
+        toFile: localPath,
+      }).promise;
+
+      if (result.statusCode === 200) {
+        // Step 2: Save to gallery
+        const savedUri = await CameraRoll.saveAsset(`file://${localPath}`);
+        ToastAndroid.show('Saved to gallery', ToastAndroid.SHORT);
+
+        console.log('Saved to gallery at:', savedUri);
+        return savedUri;
+      } else {
+        throw new Error('Download failed');
+      }
+    } catch (err) {
+      console.error('Failed to save media:', err);
+      throw err;
+    }
+  }, []);
+
+  const getFileNameFromUrl = (url: string) => {
+    const extension = url.split('.').pop()?.split(/#|\?/)[0]; // jpg, mp4, etc.
+    const uniqueName = `chat_media_${Date.now()}.${extension}`;
+    return uniqueName;
+  };
+
+  useEffect(() => {
+  const filterMessages = async () => {
+    if (searchText.trim() === '') {
+      return messages;
+    }
+    const lowerCaseSearchText = searchText.toLowerCase();
+    const result = await filterMessagesDB(lowerCaseSearchText,chatId);
+    console.log('Filtered messages:', result);
+    setFilteredMessages(result);
+  }
+    filterMessages();
+  }, [chatId, messages, searchText, setFilteredMessages]);
+
 
   const handleMediaPress = (uri: string) => {
     // Check if the media is a video
@@ -83,6 +181,24 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   const currentUserId = auth.currentUser?.uid;
   const db = getFirestore();
   const storage = getStorage();
+
+  useEffect(() => {
+    socket.on('typing', (data: { chatId: string }) => {
+      if (data.chatId === chatId) {
+        setTyping(true);
+      }
+    });
+
+    socket.on('StoppedTyping', (data: { chatId: string; }) => {
+      if (data.chatId === chatId) {
+        setTyping(false);
+      }
+    });
+    return () => {
+      socket.off('typing');
+      socket.off('StoppedTyping');
+    }
+  }, [chatId, receiver, socket])
 
   useEffect(() => {
     socket.emit('get_status', { userId: receiver });
@@ -104,13 +220,28 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     };
   }, [socket, receiver]);
 
-  const KEY_SERVICE = 'com.vicinity.privatekeys';
+  useEffect(() => {
+    const getReceiverDetails = async () => {
+      console.log('getting receiver details')
+      const details = await getReceiver(chatId);
+      console.log('details', details);
+      if(!details) return;
+      setReceiverDetails((prev: any) => ({
+        ...prev,
+        username: details.username,
+        photoURL: details.photoURL,
+      }));
+    };
+    getReceiverDetails();
+  }, [chatId]);
+
 
   useReceiverStatus(receiver, setReceiverDetails);
   useEffect(() => {
 
     const fetchunreadTimestamp = async () => {
       const timestamp = await getUnreadTimestamp(chatId);
+      timestampToshowDivider.current = timestamp;
       if (timestamp) {
         setUnreadTimestamp(timestamp);
       }
@@ -139,14 +270,53 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     fetchunreadTimestamp();
   }, [receiver, db, chatId]);
 
+  type DividerItem = {
+    type: 'divider';
+    date: number;
+    id: string;
+  };
+  type DecoratedMessage = Message & { type: 'message' } | DividerItem;
+
+  const formatMessagesWithDateDividers = useCallback((msgs: Message[]): DecoratedMessage[] => {
+    const formatted: DecoratedMessage[] = [];
+    let lastDate: moment.Moment | null = null;
+
+    const reversedMsgs = [...msgs].reverse();
+
+    for (const msg of reversedMsgs) {
+      const msgDate = moment(msg.timestamp).local().startOf('day');
+      if (!lastDate || !msgDate.isSame(lastDate)) {
+        formatted.push({
+          type: 'divider',
+          date: msg.timestamp,
+          id: msg.id + nanoid(6),
+        });
+        lastDate = msgDate;
+      }
+      formatted.push({ ...msg, type: 'message' });
+    }
+
+    return formatted.reverse();
+  }, []);
+
+
+
+
+
+  const decoratedMessages = useMemo(() => {
+    return searchText.trim() === '' ? formatMessagesWithDateDividers(messages) : formatMessagesWithDateDividers(filteredMessages);
+  }, [messages, formatMessagesWithDateDividers, searchText, filteredMessages]);
+
+
   useEffect(() => {
-    if (unreadTimestamp) {
-      const index = messages.findIndex(msg => msg.timestamp < unreadTimestamp);
+    if (timestampToshowDivider.current && decoratedMessages.length > 0) {
+      const index = decoratedMessages.findIndex(msg => msg.type === 'message' && msg.timestamp > timestampToshowDivider.current && msg.sender === receiver);
       if (index !== -1) {
         setUnreadIndex(index);
+        setShowDivider(true);
       }
     }
-  }, [messages, unreadTimestamp]);
+  }, [decoratedMessages, receiver]);
 
   useEffect(() => {
     if (unreadIndex !== null && flatListRef.current) {
@@ -159,214 +329,241 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   }, [unreadIndex]);
 
 
-  useEffect(() => {
-    const fetchPublicKey = async () => {
-      if (!currentUserId) return;
-
-      try {
-
-        const userRef = doc(db, 'users', currentUserId);
-        const userDoc = await getDoc(userRef);
-
-        if (userDoc.exists) {
-          const data = userDoc.data();
-          if (data && data.publicKey) {
-            setPublicKey(data.publicKey);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch public key:', error);
-      }
-    };
-
-    fetchPublicKey();
-  }, [db, currentUserId]);
-
   useLayoutEffect(() => {
     setCurrentChatId(chatId);
     resetUnreadCount(chatId);
+    // resetUnreadTimestamp(chatId);
+  }, [chatId, setCurrentChatId, receiver]);
+
+
+  const [lastTimestamp, setLastTimestamp] = useState<number | null>(null);
+  // const [newestTimestamp, setNewestTimestamp] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const MESSAGES_PAGE_SIZE = 40;
+
+  useEffect(() => {
+    const updateSeenMessages = async () => {
+      const lastSeenTimestamp = await getUnreadTimestamp(chatId);
+      console.log(lastSeenTimestamp);
+      if (lastSeenTimestamp !== null && currentUserId) {
+        await setSeenMessages(chatId, currentUserId, lastSeenTimestamp);
+
+      }
+      socket.emit('seen-messages', {
+        chatId: chatId,
+        receiver: receiver,
+        timestamp: Date.now(),
+        userId: currentUserId,
+      });
+    };
+    updateSeenMessages();
     resetUnreadTimestamp(chatId);
-  }, [chatId, setCurrentChatId]);
-  
+    return () => {
+      socket.off('seen-messages');
+    };
+  }, [chatId, currentUserId, receiver, socket]);
+
+  const syncMessages = useCallback(async (fetchedMessages: Message[], beforeTimestamp: number) => {
+    // Step 1: Insert all fetched messages
+    for (const message of fetchedMessages) {
+      await insertMessage(message, chatId, receiver); // assume this already exists
+    }
+
+    // Step 2: Get local messages before timestamp
+    const localMessages = await getLocalMessages(chatId, beforeTimestamp, 20);
+    const localMessageIds = localMessages.map(msg => msg.messageId);
+
+    // Step 3: Compare with server messages and delete extra local ones
+    const serverMessageIds = fetchedMessages.map(msg => msg.id);
+    const extraLocalIds = localMessageIds.filter(id => !serverMessageIds.includes(id));
+
+    // Step 4: Delete extra local messages
+    for (const id of extraLocalIds) {
+      await deleteMessage(id);
+    }
+  }, [chatId, receiver]);
 
 
   useEffect(() => {
-    let unsubscribe: () => void = () => { };
-    const fetchCachedMessages = async () => {
-      const cachedMessages = await getMessages(chatId);
-      if (cachedMessages) {
-        setMessages(cachedMessages);
+    async function fetchMessages(chatId: string, lastTimestamp: number = 0) {
+      try {
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw new Error("User not authenticated");
+
+        const idToken = await currentUser.getIdToken();
+
+        const url = new URL("https://vicinity-backend.onrender.com/messages/sync");
+        url.searchParams.append("chatId", chatId);
+        url.searchParams.append("after", String(lastTimestamp || 0));
+
+        console.log("Fetching messages from URL:", url.toString());
+
+        const response = await fetch(url.toString(), {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+            "Content-Type": "application/json",
+          },
+        });
+        // console.log("Response:", response);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(`Error ${response.status}: ${error.error}`);
+        }
+
+        const data = await response.json();
+        console.log("response", data);
+        return data.messages;
+      } catch (err) {
+        console.error("Failed to fetch messages:", err.message);
+        return [];
+      }
+    }
+
+    const syncMissedMessages = async () => {
+      try {
+        const newMessages = await fetchMessages(chatId, lastTimestamp || 0);
+
+        for (const msg of newMessages) {
+          await insertMessage(msg, chatId, receiver);
+        }
+
+        setMessages(() => {
+          return newMessages.sort((a: Message, b: Message) => b.timestamp - a.timestamp);
+        });
+      } catch (err) {
+        console.error('Failed to sync missed messages:', err);
       }
     };
-    fetchCachedMessages();
+    const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
 
-    const init = async () => {
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
-        )
-      );
-      if (!receiverDetailsRef) return;
+    if (lastTimestamp !== null) {
+      const checkNetworkAndSync = async () => {
+        const netInfo = await NetInfo.fetch();
+        if (netInfo.isConnected) {
+          syncMissedMessages();
+          syncMessages(cachedMessages, Date.now());
+        }
+      };
+      checkNetworkAndSync();
+    }
+  }, [chatId, lastTimestamp, receiver, setMessages, syncMessages])
 
-      // 1. Get user's private key from Keychain
-      const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
-      if (!existingKey) {
-        console.log('Private key not found in secure storage');
+
+  useEffect(() => {
+    const fetchInitialCachedMessages = async () => {
+      setLoadingMore(true);
+      const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
+      console.log('Fetched initial cached messages:', cachedMessages);
+
+      if (cachedMessages && cachedMessages.length > 0) {
+        setMessages(cachedMessages);
+        setLastTimestamp(cachedMessages[cachedMessages.length - 1].timestamp);
+        if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
+          setHasMore(false);
+
+        }
+        setOffset(cachedMessages.length);
+      } else {
+        setLastTimestamp(0);
+      }
+      setLoadingMore(false);
+    };
+
+    fetchInitialCachedMessages();
+  }, [chatId, setMessages]); // Only run when chatId changes
+
+
+  
+
+  const loadMessages = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const netInfo = await NetInfo.fetch();
+      const isOffline = !netInfo.isConnected;
+
+      if (isOffline) {
+        console.log("Offline mode - loading older messages from local DB");
+
+        const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE, offset);
+        if (cachedMessages.length > 0) {
+          setOffset((prevOffset) => prevOffset + cachedMessages.length);
+          setMessages((prev) => {
+            const combined = [...cachedMessages, ...prev];
+            return combined.sort((a, b) => b.timestamp - a.timestamp);
+          });
+        }
+
+        if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
+          setHasMore(false);
+        }
+        setLoadingMore(false);
+
         return;
       }
 
-      const myPrivateKey = Buffer.from(existingKey.password, 'hex');
-      console.log(myPrivateKey);
+      // No more cached — fetch from Firestore
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error("User not authenticated");
 
-      const messagesRef = collection(db, 'chats', chatId, 'messages');
-      const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'));
+      const idToken = await currentUser.getIdToken(); // Get the Firebase ID token
+      console.log(chatId, lastTimestamp);
 
-      // Fetch messages once using getDocs
-      const snapshot = await getDocs(messagesQuery);
-      const decryptedMessages: Message[] = [];
+      const url = new URL('https://vicinity-backend.onrender.com/messages/sync');
+      url.searchParams.append('chatId', chatId);
+      url.searchParams.append('limit', '40');
+      url.searchParams.append('before', String(lastTimestamp || 0));
 
-      snapshot.forEach((d) => {
-        const data = d.data();
-        console.log('data', data);
+      console.log('Fetching messages from URL:', url.toString());
 
-        // If encrypted
-        if (data.text && data.nonce && data.senderPubKey) {
-          try {
-            const senderPubKey = Buffer.from(data.senderPubKey, 'hex');
-            const nonce = Buffer.from(data.nonce, 'hex');
-            const ciphertext = Buffer.from(data.text, 'hex');
-            let medianonce = null;
-            if (data.medianonce) {
-              medianonce = Buffer.from(data.medianonce, 'hex');
-            }
-            let media = null;
-            if (data.media) {
-              media = Buffer.from(data.media, 'hex');
-            }
-            let decrypted = null;
-            let decryptedMedia = null;
-            if (data.sender === currentUserId) {
-              decrypted = decryptMessage(
-                ciphertext.toString('hex'),
-                nonce.toString('hex'),
-                myPrivateKey.toString('hex'),
-                receiverDetailsRef.current.publicKey.toString('hex')
-              );
-
-              decryptedMedia =
-                media && medianonce
-                  ? decryptMessage(
-                    media.toString('hex'),
-                    medianonce.toString('hex'),
-                    myPrivateKey.toString('hex'),
-                    receiverDetailsRef.current.publicKey.toString('hex')
-                  )
-                  : null;
-              console.log('Decrypted message:', decrypted);
-            } else {
-              decrypted = decryptMessage(
-                ciphertext.toString('hex'),
-                nonce.toString('hex'),
-                myPrivateKey.toString('hex'),
-                senderPubKey.toString('hex')
-              );
-              decryptedMedia =
-                media && medianonce
-                  ? decryptMessage(
-                    media.toString('hex'),
-                    medianonce.toString('hex'),
-                    myPrivateKey.toString('hex'),
-                    senderPubKey.toString('hex')
-                  )
-                  : null;
-              console.log('Decrypted message:', decrypted);
-            }
-
-            const decryptedMessage = {
-              id: d.id,
-              text: decrypted,
-              sender: data.sender,
-              timestamp:
-                data.timestamp instanceof Timestamp
-                  ? data.timestamp.toDate().getTime()
-                  : typeof data.timestamp === 'number'
-                    ? data.timestamp
-                    : Date.now(),
-              media: decryptedMedia || null,
-              replyTo: data.replyTo || null,
-              delivered: data.delivered || false,
-              seen: data.seen || false,
-            }
-
-            decryptedMessages.push({
-              ...decryptedMessage,
-            });
-
-            insertMessage(decryptedMessage, chatId, receiver);
-          } catch (e) {
-            console.error(`❌ Failed to decrypt message ${d.id}`, e);
-          }
-        } else {
-          // Unencrypted fallback
-          const decryptedMessage = {
-            id: d.id,
-            text: data.text || '',
-            sender: data.sender,
-            timestamp:
-              data.timestamp instanceof Timestamp
-                ? data.timestamp.toDate().getTime()
-                : typeof data.timestamp === 'number'
-                  ? data.timestamp
-                  : Date.now(),
-            media: data.media || null,
-            replyTo: data.replyTo || null,
-            delivered: data.delivered || false,
-            seen: data.seen || false,
-          };
-
-          decryptedMessages.push({
-            ...decryptedMessage,
-          });
-          insertMessage(decryptedMessage, chatId, receiver);
-        }
-      });
-      setMessages((prevMessages) => {
-        const updatedMessages: Message[] = [];
-        const newMessageIds = decryptedMessages.map((msg) => msg.id);
-
-        // Step 1: Keep only those that still exist in Firestore
-        prevMessages.forEach((oldMsg) => {
-          if (newMessageIds.includes(oldMsg.id)) {
-            const freshVersion = decryptedMessages.find((m) => m.id === oldMsg.id);
-            // Update only if different
-            if (freshVersion && JSON.stringify(freshVersion) !== JSON.stringify(oldMsg)) {
-              updatedMessages.push(freshVersion);
-            } else {
-              updatedMessages.push(oldMsg); // Keep existing
-            }
-          }
-        });
-
-        // Step 2: Add new ones that didn’t exist before
-        decryptedMessages.forEach((newMsg) => {
-          if (!prevMessages.some((m) => m.id === newMsg.id)) {
-            updatedMessages.push(newMsg);
-          }
-        });
-
-        return updatedMessages;
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${idToken}`, // Add Bearer token for authentication
+          'Content-Type': 'application/json',
+        },
       });
 
-      console.log(decryptedMessages);
-    };
+      if (!response.ok) {
+        const error = await response.json();
+        console.log(error);
+        throw new Error(`Error ${response.status}: ${error.error}`);
+      }
+      const data = await response.json();
+      const fetchedMessages: Message[] = data.messages;
 
-    init();
+      if (fetchedMessages.length < MESSAGES_PAGE_SIZE) {
+        setHasMore(false);
+      }
+      if (fetchedMessages.length > 0) {
 
-    return () => {
-      unsubscribe();
-    };
-  }, [chatId, db, setMessages, setCurrentChatId, setChats, auth, currentUserId, receiver]);
+        setMessages((prevMessages) => {
+          const combined = [...fetchedMessages, ...prevMessages];
+          return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
+        });
+        syncMessages(fetchedMessages, lastTimestamp || 0);
+        setLastTimestamp(fetchedMessages[fetchedMessages.length - 1].timestamp);
+      }
+    } catch (err) {
+      console.error('Error loading older messages:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages, syncMessages]);
+
+  const onEndReached = () => {
+    if (messages.length >= 40) {
+      loadMessages();
+    }
+  };
   //let the error be here
+
+
 
 
   const handleSend = async () => {
@@ -383,17 +580,45 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         setUploading(true);
         const response = await fetch(attachedMedia.uri);
         const blob = await response.blob();
+        let cancelled = false;
 
         const storageRef = ref(storage, `chats/${chatId}/${attachedMedia.filename}`);
         const uploadTask = uploadBytesResumable(storageRef, blob);
+        uploadTaskRef.current = uploadTask;
 
-        uploadTask.on('state_changed', (snapshot) => {
-          const progress = snapshot.bytesTransferred / snapshot.totalBytes;
-          setUploadProgress(progress);
-        });
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const progress = snapshot.bytesTransferred / snapshot.totalBytes;
+            setUploadProgress(progress);
+          },
+          (error) => {
+            if (error.code === 'storage/canceled') {
+              console.log('Upload canceled');
+            } else {
+              console.error('Upload failed:', error);
+            }
+            setUploading(false);
+            setUploadProgress(0);
+            setAttachedMedia(null);
+            uploadTaskRef.current = null;
+            cancelled = true;
+            return;
+          },
+          async () => {
+            console.log('Upload complete');
+            media = await getDownloadURL(storageRef);
+            setUploading(false);
+            setUploadProgress(0);
+            uploadTaskRef.current = null;
+          }
+        );
 
         await uploadTask;
-        media = await getDownloadURL(storageRef);
+        if (cancelled) {
+          console.log('Upload was cancelled');
+          return;
+        }
         // setMedia(mediaUrl);
         setUploading(false);
         setAttachedMedia(null);
@@ -405,7 +630,7 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         return;
       }
     }
-    const messageId = chatId + Date.now().toString();
+    const messageId = chatId + `${Date.now()}_${nanoid(6)}`;
 
     const messageToDisplay = {
       id: messageId,
@@ -417,40 +642,27 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       delivered: false,
       seen: false,
     };
-    setMessages(prevMessages => [...prevMessages, { ...messageToDisplay }]);
+    setShowDivider(false);
+    setMessages(prevMessages => [messageToDisplay, ...prevMessages]);
     insertMessage(messageToDisplay, chatId, receiver);
+    const inptext = inputText;
+    const reply = replyTo;
+    setInputText('');
+    setReplyTo(null);
+    let nmessage = { ...messageToDisplay, chatId: chatId, receiver: receiver };
+    sendDMNotification([receiverDetails?.fcmToken], nmessage);
+    socket.emit('send-dm', { message: nmessage });
 
-    const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
-    if (!existingKey) {
-      console.log('Private key not found in secure storage');
-      return;
-    }
-    const myPrivateKey = Buffer.from(existingKey.password, 'hex');
 
-    const sharedSecret = generateSharedSecret(myPrivateKey.toString('hex'), receiverDetails?.publicKey);
 
-    console.log('sharedSecret:', sharedSecret);
-    const { cipherText, nonce } = encryptMessage(inputText, sharedSecret);
-    let medianonce = null;
-    let mediaCipher = null;
-    if (media) {
-      const { cipherText: mediaCipherText, nonce: mediaNonce } = encryptMessage(media, sharedSecret);
-      mediaCipher = mediaCipherText;
-      medianonce = mediaNonce;
-    }
     const newMessage = {
       id: messageId, // unique id for the message
       sender: currentUserId,
       receiver: receiver,
-      text: cipherText,
-      media: mediaCipher, // or a URL/string if media is attached
       timestamp: Date.now(),
-      replyTo: replyTo || null,
+      replyTo: reply || null,
       delivered: false,
       seen: false,
-      nonce: nonce,
-      senderPubKey: publicKey,
-      medianonce: medianonce,
     };
     try {
 
@@ -467,6 +679,24 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       await setDoc(messagesRef, {
         ...newMessage,
       });
+
+      const userToken = await auth.currentUser?.getIdToken();
+      const response = await fetch("https://vicinity-backend.onrender.com/message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`, // Firebase ID token
+        },
+        body: JSON.stringify({
+          chatId,
+          text: inptext,
+          media,
+          messageId,
+        }),
+      });
+
+      console.log(response);
+
     } catch (error) {
       console.error('Error sending message:', error);
     }
@@ -475,17 +705,16 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         message.id === messageId ? { ...message, delivered: true } : message
       )
     );
-
-    setInputText('');
+    messageToDisplay.delivered = true;
+    insertMessage(messageToDisplay, chatId, receiver);
     setReplyTo(null);
     // setMedia(null); // Clear media after sending
     setUploadProgress(0);
-    sendDMNotification([receiverDetails?.fcmToken], currentUserId, inputText, chatId,messageId);
-    let nmessage = { ...newMessage, chatId: chatId };
-    socket.emit('send-dm', { message: nmessage });
+   
   };
 
   const handleAttachMedia = async () => {
+    setShowDivider(false);
     try {
       const result = await launchImageLibrary({
         mediaType: 'mixed', // Supports both images and videos
@@ -507,7 +736,12 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
     }
   };
 
-  const handleReply = (message: Message) => setReplyTo(message);
+  const handleReply = (message: Message) => {
+    setReplyTo(message.id);
+    inputRef.current?.focus();
+  };
+
+
 
   const messageIdToIndexMap = useMemo(() => {
     const map: { [key: string]: number } = {};
@@ -529,20 +763,29 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => confirmDelete(messageId)
-        }
+          onPress: () => confirmDelete(messageId),
+        },
       ],
       { cancelable: true }
     );
+
   };
 
   const confirmDelete = async (messageId: string): Promise<void> => {
+    const netInfo = await NetInfo.fetch();
+    const isOffline = !netInfo.isConnected;
+    if (isOffline) {
+      setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
+      await deleteMessage(messageId);
+      await insertIntoDeletedMessages(messageId, chatId, receiver);
+      return;
+    }
     try {
       // Remove the message from the local state
       setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
 
       await deleteMessage(messageId);
-      socket.emit('message-deleted', { messageId: messageId, chatId: chatId,receiver: receiver });
+      socket.emit('message-deleted', { messageId: messageId, chatId: chatId, receiver: receiver });
 
       // Reference to the message in Firestore
       const messageRef = doc(db, 'chats', chatId, 'messages', messageId);
@@ -550,20 +793,28 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
 
       if (messageDoc.exists) {
         const messageData = messageDoc.data();
+        // console.log('Message data:', messageData);
 
         // Check if the message has media
         if (messageData?.media) {
-          const mediaUrl = messageData.media;
+          const userToken = await auth.currentUser?.getIdToken();
 
-          // Extract the file path from the media URL
-          const filePath = decodeURIComponent(mediaUrl.split('/o/')[1].split('?')[0]);
+          try {
+            await fetch("https://vicinity-backend.onrender.com/delete-media", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${userToken}`, // Firebase ID token
+              },
+              body: JSON.stringify({
+                media: messageData.media,
+                messageId: messageId,
+              }),
+            });
+          } catch (error) {
+            console.error('Error deleting media:', error);
+          }
 
-          // Reference to the file in Firebase Storage
-          const storageRef = ref(storage, filePath);
-
-          // Delete the file from Firebase Storage
-          await deleteObject(storageRef);
-          console.log('Media deleted successfully from storage');
         }
 
         // Delete the message from Firestore
@@ -572,17 +823,33 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       } else {
         console.error('Message does not exist in Firestore');
       }
+      setShowDivider(false);
       sendDeleteNotification([receiverDetails?.fcmToken], messageId);
-      clearNotification([receiverDetails?.fcmToken], messageId);
     } catch (error) {
       console.error('Error deleting message or media:', error);
     }
   };
 
+  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  const handleTyping = (text: string) => {
+    if (text.trim()) {
+      socket.emit('typing', { chatId: chatId, receiver: receiver });
+
+    }
+
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(() => {
+      socket.emit('StoppedTyping', { chatId: chatId, receiver: receiver });
+    }, 2000);
+
+  }
+
 
   const renderMedia = (media: string, onPress?: () => void) => {
     const cleanUrl = media.split('?')[0].toLowerCase();
     const ext = cleanUrl.substring(cleanUrl.lastIndexOf('.') + 1);
+
 
     const isVideo = ext === 'mp4' || ext === 'mov';
 
@@ -619,10 +886,49 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
   };
 
 
-  const renderMessage = ({ item, index }: { item: Message, index: number }) => {
+  const inputRef = useRef<TextInput>(null);
+  const getTextfromId = (messageId: string) => {
+    const message = messages.find(msg => msg.id === messageId);
+    return message ? message.text : '';
+  };
+
+  const MemoizedHeader = useCallback(() => {
+    return (
+      <DownloadHeader
+        visible={modalVisible}
+        onDownload={() =>
+          downloadAndSaveToGallery(
+            selectedMedia || '',
+            getFileNameFromUrl(selectedMedia || '')
+          )
+        }
+      />);
+  }, [selectedMedia, downloadAndSaveToGallery, modalVisible]);
+
+
+
+  const renderMessage = ({ item, index }: { item: DecoratedMessage, index: Number }) => {
+
+    if (item.type === 'divider') {
+      const label = moment(item.date).calendar(null, {
+        sameDay: '[Today]',
+        lastDay: '[Yesterday]',
+        lastWeek: 'dddd',
+        sameElse: 'MMMM D, YYYY',
+      });
+      return (
+        <View className="flex-row justify-center items-center my-2">
+          <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm">
+            <Text className="text-xs text-gray-800 dark:text-gray-200 font-large">{label}</Text>
+          </View>
+        </View>
+
+      );
+    }
+
     const isMine = item.sender === currentUserId;
     const isHighlighted = item.id === highlightedMessageId;
-    const showUnreadDivider = index === unreadIndex;
+    const ToshowDivider = index === unreadIndex;
 
     const scrollToMessageById = (messageId: string) => {
       const targetIndex = messageIdToIndexMap[messageId];
@@ -640,52 +946,76 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       }
     };
 
+
     const handleScrollToReply = () => {
-      if (item.replyTo?.id) {
-        scrollToMessageById(item.replyTo.id);
-      }
-      else {
+      if (item.replyTo) {
+        scrollToMessageById(item.replyTo);
+      } else {
         console.error("could not find the message");
       }
     };
 
+    const handleLongPress = () => {
+      Clipboard.setString(item.text);
+      ToastAndroid.show('Copied to clipboard', ToastAndroid.SHORT);
+    };
+
+
+
     return (
-      <View
-        className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
-          } ${isHighlighted ? 'border-2 border-yellow-400' : ''}`}
-      >
-        {showUnreadDivider && (
-          <View className="items-center my-3">
-            <Text className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs">
-              Unread Messages
-            </Text>
-          </View>
-        )}
-        {item.replyTo && (
-          <TouchableOpacity onPress={handleScrollToReply}>
-            <View className="mb-1 border-l-2 border-white pl-2">
-              <Text className="text-white text-xs italic">Reply: {item.replyTo.text}</Text>
+      <View>
+        <View>
+          {showDivider && ToshowDivider && (
+            <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm mb-2">
+              <Text className="text-xs text-gray-800 dark:text-gray-200 font-large">New Messages</Text>
             </View>
-          </TouchableOpacity>
-        )}
-        {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
-        <Text className="text-white">{item.text}</Text>
-        <View className="flex-row justify-between mt-1">
-          <Text className="text-xs text-gray-300">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-          <View className="flex-row gap-x-2">
-            <TouchableOpacity onPress={() => handleReply(item)}>
-              <Ionicons name="return-up-back-outline" size={16} color="white" />
+          )}
+        </View>
+
+        <View
+          className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
+            } ${isHighlighted ? 'border-2 border-yellow-400' : ''}`}
+        >
+
+          {item.replyTo && (
+            <TouchableOpacity onPress={handleScrollToReply}>
+              <View className="mb-1 border-l-2 border-white pl-2">
+                <Text className="text-white text-xs italic">Reply: {getTextfromId(item.replyTo)}</Text>
+              </View>
             </TouchableOpacity>
-            {isMine && (
-              <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                <Ionicons name="trash-outline" size={16} color="white" />
+          )}
+          {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
+          <Pressable onLongPress={handleLongPress}>
+            <Text className="text-white">{item.text}</Text>
+          </Pressable>
+          <View className="flex-row justify-between mt-1">
+            <Text className="text-xs text-gray-300">
+              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+            <View className="flex-row gap-x-2">
+              <TouchableOpacity onPress={() => handleReply(item)}>
+                <Ionicons name="return-up-back-outline" size={16} color="white" />
               </TouchableOpacity>
-            )}
+              {isMine && (
+                <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                  <Ionicons name="trash-outline" size={16} color="white" />
+                </TouchableOpacity>
+              )}
+              {isMine && item.delivered && !item.seen && (
+                <Ionicons name="checkmark" size={16} color="white" />
+              )}
+              {isMine && item.seen && (
+                <Ionicons name="checkmark-done" size={16} color="white" />
+              )}
+            </View>
           </View>
         </View>
       </View>
     );
   };
+
+
+
 
   return (
     <KeyboardAvoidingView
@@ -693,25 +1023,164 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
-      {receiverDetails &&
-        <View style={styles.statusBar}>
-          <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
-          <View style={styles.userInfo}>
-            <Text style={styles.username}>{receiverDetails.username}</Text>
-            {receiverDetails.status && <Text style={styles.status}>{receiverDetails.status}</Text>}
-            {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
-          </View>
+      {isSearching ? (
+  <View className="px-4 pt-3 bg-black">
+    <View className="flex-row items-center bg-zinc-800 rounded-xl px-3 py-2">
+      <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
+      <TextInput
+        placeholder="Search messages"
+        placeholderTextColor="#ccc"
+        value={searchText}
+        onChangeText={setSearchText}
+        className="flex-1 text-white"
+        autoFocus
+      />
+      <TouchableOpacity onPress={() => {
+        setSearchText('');
+        // setSelectedDate(null);
+        setIsSearching(false);
+      }}>
+        <Ionicons name="close" size={20} color="white" />
+      </TouchableOpacity>
+    </View>
+
+    {/* <TouchableOpacity
+      onPress={() => setShowDatePicker(true)}
+      className="mt-2 p-2 rounded bg-zinc-700 flex-row items-center justify-center"
+    >
+      <Ionicons name="calendar" size={18} color="white" style={{ marginRight: 6 }} />
+      <Text style={{ color: 'white' }}>
+        {selectedDate ? selectedDate.toDateString() : 'Filter by Date'}
+      </Text>
+    </TouchableOpacity>
+
+    {showDatePicker && (
+      <DateTimePicker
+        value={selectedDate || new Date()}
+        mode="date"
+        display="default"
+        onChange={(event, date) => {
+          setShowDatePicker(false);
+          if (date) setSelectedDate(date);
+        }}
+      />
+    )} */}
+  </View>
+) : (
+  receiverDetails && (
+    <TouchableOpacity
+      onPress={() => {
+        navigation.navigate('ChatUserProfile', {
+          chatId: chatId,
+          receiverDetails: receiverDetails,
+        });
+      }}
+    >
+      <View style={styles.statusBar}>
+        <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
+        <View style={styles.userInfo}>
+          <Text style={styles.username}>{receiverDetails.username}</Text>
+          {typing && <Text style={styles.status}>Typing...</Text>}
+          {receiverDetails.status && !typing && <Text style={styles.status}>{receiverDetails.status}</Text>}
+          {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
         </View>
-      }
+        <TouchableOpacity
+          onPress={() => setIsSearching(true)}
+          style={{ position: 'absolute', right: 16 }}
+        >
+          <Ionicons name="search" size={20} color="white" />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  )
+)}
+{/* {receiverDetails && (
+<Animated.View style={[receiverStyle]}>
+  <TouchableOpacity
+    onPress={() => {
+      navigation.navigate('ChatUserProfile', {
+        chatId: chatId,
+        receiverDetails: receiverDetails,
+      });
+    }}
+  >
+    <View style={styles.statusBar}>
+      <Image source={{ uri: receiverDetails.profilePic }} style={styles.profilePic} />
+      <View style={styles.userInfo}>
+        <Text style={styles.username}>{receiverDetails.username}</Text>
+        {typing && <Text style={styles.status}>Typing...</Text>}
+        {receiverDetails.status && !typing && (
+          <Text style={styles.status}>{receiverDetails.status}</Text>
+        )}
+      </View>
+      <TouchableOpacity
+        onPress={toggleSearch}
+        style={{ position: 'absolute', right: 16 }}
+      >
+        <Ionicons name="search" size={20} color="white" />
+      </TouchableOpacity>
+    </View>
+  </TouchableOpacity>
+</Animated.View>)}
+
+{showSearchBar.value && (
+
+<Animated.View style={[searchBarStyle]}>
+  <View className="px-4 pt-3 bg-black">
+    <View className="flex-row items-center bg-zinc-800 rounded-xl px-3 py-2">
+      <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
+      <TextInput
+        placeholder="Search messages"
+        placeholderTextColor="#ccc"
+        value={searchText}
+        onChangeText={setSearchText}
+        className="flex-1 text-white"
+        autoFocus
+      />
+      <TouchableOpacity onPress={toggleSearch}>
+        <Ionicons name="close" size={20} color="white" />
+      </TouchableOpacity>
+    </View>
+
+    <TouchableOpacity
+      onPress={() => setShowDatePicker(true)}
+      className="mt-2 p-2 rounded bg-zinc-700 flex-row items-center justify-center"
+    >
+      <Ionicons name="calendar" size={18} color="white" style={{ marginRight: 6 }} />
+      <Text style={{ color: 'white' }}>
+        {selectedDate ? selectedDate.toDateString() : 'Filter by Date'}
+      </Text>
+    </TouchableOpacity>
+
+    {showDatePicker && (
+      <DateTimePicker
+        value={selectedDate || new Date()}
+        mode="date"
+        display="default"
+        onChange={(event, date) => {
+          setShowDatePicker(false);
+          if (date) setSelectedDate(date);
+        }}
+      />
+    )}
+  </View>
+</Animated.View>)
+} */}
+
+
+
 
       <FlatList
         ref={flatListRef}
-        data={messages}
+        data={decoratedMessages}
         inverted={true}
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
         initialNumToRender={10} // Optimize for large lists
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.2}
+        ListFooterComponent={loadingMore ? <ActivityIndicator /> : null}
         onScrollToIndexFailed={({ index }) => {
           console.log('Scroll failed. Retrying index:', index);
           setTimeout(() => {
@@ -723,15 +1192,6 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
           }, 300); // wait for layout
         }}
       />
-
-      {replyTo && (
-        <View className="bg-zinc-800 px-4 py-2 border-l-4 border-blue-500">
-          <Text className="text-white text-xs">Replying to: {replyTo.text}</Text>
-          <TouchableOpacity onPress={() => setReplyTo(null)} className="absolute top-2 right-3">
-            <Ionicons name="close" size={18} color="white" />
-          </TouchableOpacity>
-        </View>
-      )}
 
       {attachedMedia && (
         <View style={{ marginBottom: 8 }}>
@@ -764,37 +1224,74 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
           </TouchableOpacity>
         </View>
       )}
-
-      <View className="flex-row items-center px-4 py-3 bg-zinc-900 border-t border-zinc-700">
-        <TouchableOpacity onPress={handleAttachMedia} className="mr-3">
-          <Ionicons name="attach" size={24} color="white" />
-        </TouchableOpacity>
-        <TextInput
-          value={inputText}
-          onChangeText={setInputText}
-          placeholder="Type a message"
-          placeholderTextColor="#aaa"
-          className="flex-1 bg-zinc-800 text-white px-4 py-2 rounded-xl"
-        />
-        {uploading && (
-          <View style={{ marginVertical: 4 }}>
-            <Text style={{ color: 'white' }}>Uploading: {(uploadProgress * 100).toFixed(0)}%</Text>
-            <View style={{ height: 6, backgroundColor: '#444', borderRadius: 6 }}>
-              <View style={{
-                width: `${uploadProgress * 100}%`,
-                height: 6,
-                backgroundColor: 'dodgerblue',
-                borderRadius: 6
-              }} />
-            </View>
+      <View className="px-4 py-3 bg-zinc-900 border-t border-zinc-700">
+        {replyTo && (
+          <View className="bg-zinc-800 px-4 py-2 border-l-4 border-blue-500 mb-2 relative rounded">
+            <Text className="text-white text-xs">Replying to: {getTextfromId(replyTo)}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setReplyTo(null); // Close reply
+                inputRef.current?.blur();
+              }}
+              className="absolute top-1 right-2"
+            >
+              <Ionicons name="close" size={18} color="white" />
+            </TouchableOpacity>
           </View>
         )}
-        <TouchableOpacity onPress={handleSend} className="ml-3">
-          <Ionicons name="send" size={24} color="white" />
-        </TouchableOpacity>
+
+        {/* Input Row */}
+        <View className="flex-row items-end">
+          <TouchableOpacity onPress={handleAttachMedia} className="mr-3 mb-1">
+            <Ionicons name="attach" size={24} color="white" />
+          </TouchableOpacity>
+
+          <TextInput
+            ref={inputRef}
+            value={inputText}
+            onChangeText={(text) => { setInputText(text); handleTyping(text); }}
+            placeholder="Type a message"
+            placeholderTextColor="#aaa"
+            className="flex-1 bg-zinc-800 text-white px-4 py-2 rounded-xl max-h-[100px]"
+            editable
+            multiline
+          />
+          <TouchableOpacity onPress={handleSend} className="ml-3">
+            <Ionicons name="send" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
+        {uploading && (
+          <View className="mt-2">
+            <Text style={{ color: 'white' }}>
+              Uploading: {(uploadProgress * 100).toFixed(0)}%
+            </Text>
+            <View style={{ height: 6, backgroundColor: '#444', borderRadius: 6, overflow: 'hidden' }}>
+              <View
+                style={{
+                  width: `${uploadProgress * 100}%`,
+                  height: 6,
+                  backgroundColor: 'dodgerblue',
+                }}
+              />
+            </View>
+            <TouchableOpacity
+              onPress={() => {
+                uploadTaskRef.current?.cancel();
+                setUploading(false);
+                setAttachedMedia(null);
+                setUploadProgress(0);
+              }}
+              disabled={!uploadTaskRef.current}
+              className="mt-2"
+            >
+              <Text style={{ color: 'red' }}>Cancel Upload</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
       </View>
 
-      <Modal visible={modalVisible} transparent={true}>
+      <Modal visible={modalVisible && (pressedFileExt === 'mp4' || pressedFileExt === 'mov')} transparent={true}>
         <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
           <TouchableOpacity
             style={{ position: 'absolute', top: 40, right: 20, zIndex: 1 }}
@@ -802,28 +1299,40 @@ export default function ChatScreen({ route }: { route: ChatScreenRouteProp }) {
           >
             <Ionicons name="close" size={32} color="white" />
           </TouchableOpacity>
-          {pressedFileExt === 'mp4' || pressedFileExt === 'mov' ? (
-            <Video
-              // source={{ uri: media }}
-              // style={{ width: 220, height: 280, borderRadius: 12 }}
-              // resizeMode="cover"
-              paused={false}
-              source={{ uri: selectedMedia || undefined }}
-              style={{ width: '100%', height: '100%' }}
-              controls={true}
-              resizeMode="contain"
-              // paused={false}
-              onError={(error) => console.error('Video error:', error)} // Debugging video issues
-            />
-          ) : (
-            <FastImage
-              source={{ uri: selectedMedia || undefined }}
-              style={{ width: '100%', height: '80%' }}
-              resizeMode={FastImage.resizeMode.contain}
-            />
-          )}
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 40, left: 20, zIndex: 1 }}
+            onPress={() => {
+              if (selectedMedia) {
+                downloadAndSaveToGallery(selectedMedia, getFileNameFromUrl(selectedMedia));
+              }
+            }}
+          >
+            <Ionicons name="download" size={32} color="white" />
+          </TouchableOpacity>
+
+          <Video
+            source={{ uri: selectedMedia || undefined }}
+            style={{ width: '100%', height: '100%' }}
+            controls={true}
+            resizeMode="contain"
+            paused={false}
+            onError={(error) => console.error('Video error:', error)}
+          />
+
+
         </View>
       </Modal>
+      <ImageViewing
+        images={[{ uri: selectedMedia || '' }]}
+        imageIndex={0}
+        visible={modalVisible && (pressedFileExt === 'jpg' || pressedFileExt === 'jpeg' || pressedFileExt === 'png' || pressedFileExt === 'gif')}
+        onRequestClose={() => setModalVisible(false)}
+        swipeToCloseEnabled={true}
+        doubleTapToZoomEnabled={true}
+        backgroundColor="black"
+        animationType="fade"
+        HeaderComponent={MemoizedHeader}
+      />
     </KeyboardAvoidingView>
   );
 }
