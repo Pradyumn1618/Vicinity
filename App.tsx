@@ -22,8 +22,7 @@ import { send } from 'process';
 
 global.Buffer = Buffer;
 
-
-const App = () => {
+const AppContent = () => {
   const { setChats, currentChatId } = useChatContext();
 
   interface NotificationData {
@@ -135,6 +134,12 @@ const App = () => {
     };
   }, [setChats]);
 
+  useEffect(() => {
+    if (currentChatId) {
+      console.log('Current Chat ID updated:', currentChatId);
+    }
+  }, [currentChatId]);
+
   // 4. Handle incoming FCM notifications in the foreground
   useEffect(() => {
     const unsubscribe = messaging().onMessage(async (remoteMessage) => {
@@ -167,18 +172,6 @@ const App = () => {
           sender: data.sender ?? '',
         });
 
-        // const message = {
-        //   id: remoteMessage.data.id,
-        //   sender: remoteMessage.data.sender,
-        //   text: remoteMessage.data.text,
-        //   media: remoteMessage.data.media,
-        //   replyTo: remoteMessage.data.replyTo,
-        //   timestamp: remoteMessage.data.timestamp,
-        //   delivered: remoteMessage.data.delivered,
-        //   seen: remoteMessage.data.seen,
-        // }
-
-        // insertMessage(message, remoteMessage.data.customKey, remoteMessage.data.receiver);
         return;
       } else if (purpose === 'delete') {
         // Handle delete notification
@@ -244,7 +237,6 @@ const App = () => {
     }
     setNotificationData(null);
   };
-
   return (
     <>
       {notificationData && (
@@ -255,12 +247,23 @@ const App = () => {
           onClose={() => setNotificationData(null)}
         />
       )}
+      <NavigationContainer ref={navigationRef}>
+        <SocketProvider>
+          <Navigation />
+        </SocketProvider>
+      </NavigationContainer>
+    </>
+  );
+};
+
+
+const App = () => {
+
+
+  return (
+    <>
       <ChatProvider>
-        <NavigationContainer ref={navigationRef}>
-          <SocketProvider>
-            <Navigation />
-          </SocketProvider>
-        </NavigationContainer>
+        <AppContent />
       </ChatProvider>
     </>
   );

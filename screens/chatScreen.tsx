@@ -26,6 +26,7 @@ import ImageViewing from "react-native-image-viewing";
 
 import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB } from '../helper/databaseHelper';
 import { DownloadHeader } from '../components/downLoad';
+import RenderMessage from '../components/renderMessage';
 
 
 
@@ -917,117 +918,34 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       />);
   }, [selectedMedia, downloadAndSaveToGallery, modalVisible]);
 
-
-
-  const renderMessage = ({ item, index }: { item: DecoratedMessage, index: Number }) => {
-
-    if (item.type === 'divider') {
-      const label = moment(item.date).calendar(null, {
-        sameDay: '[Today]',
-        lastDay: '[Yesterday]',
-        lastWeek: 'dddd',
-        sameElse: 'MMMM D, YYYY',
+  const scrollToMessageById = (messageId: string) => {
+    const targetIndex = messageIdToIndexMap[messageId];
+    console.log('targetIndex:', targetIndex);
+    if (targetIndex !== undefined) {
+      flatListRef.current?.scrollToIndex({
+        index: targetIndex,
+        animated: true,
+        viewPosition: 0.5, // keeps it mid-screen, feels smoother
       });
-      return (
-        <View className="flex-row justify-center items-center my-2">
-          <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm">
-            <Text className="text-xs text-gray-800 dark:text-gray-200 font-large">{label}</Text>
-          </View>
-        </View>
-
-      );
+      setHighlightedMessageId(messageId); // for highlight effect
+      setTimeout(() => setHighlightedMessageId(null), 2000);
+    } else {
+      console.warn('Message ID not found in map:', messageId);
     }
-
-    const isMine = item.sender === currentUserId;
-    const isHighlighted = item.id === highlightedMessageId;
-    const ToshowDivider = index === unreadIndex;
-
-    const scrollToMessageById = (messageId: string) => {
-      const targetIndex = messageIdToIndexMap[messageId];
-      console.log('targetIndex:', targetIndex);
-      if (targetIndex !== undefined) {
-        flatListRef.current?.scrollToIndex({
-          index: targetIndex,
-          animated: true,
-          viewPosition: 0.5, // keeps it mid-screen, feels smoother
-        });
-        setHighlightedMessageId(messageId); // for highlight effect
-        setTimeout(() => setHighlightedMessageId(null), 2000);
-      } else {
-        console.warn('Message ID not found in map:', messageId);
-      }
-    };
-
-
-    const handleScrollToReply = () => {
-      if (item.replyTo) {
-        scrollToMessageById(item.replyTo);
-      } else {
-        console.error("could not find the message");
-      }
-    };
-
-    const handleLongPress = () => {
-      Clipboard.setString(item.text);
-      ToastAndroid.show('Copied to clipboard', ToastAndroid.SHORT);
-    };
-
-
-
-    return (
-      <View>
-        {/* <View>
-          {showDivider && ToshowDivider && (
-            <View className="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded-full shadow-sm mb-2 items-center justify-center w-1/2 self-center">
-              <Text className="text-xs text-gray-800 dark:text-gray-200 font-large">New Messages</Text>
-            </View>
-          )}
-        </View> */}
-
-        <View
-          className={`max-w-[80%] p-3 rounded-xl mb-2 ${isMine ? 'self-end bg-blue-600' : 'self-start bg-zinc-700'
-            } ${isHighlighted ? 'border-2 border-yellow-400' : ''}`}
-        >
-
-          {item.replyTo && (
-            <TouchableOpacity onPress={handleScrollToReply}>
-              <View className="mb-1 border-l-2 border-white pl-2">
-                <Text className="text-white text-xs italic">Reply: {getTextfromId(item.replyTo)}</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-          {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
-          <Pressable onLongPress={handleLongPress}>
-            <Text className="text-white">{item.text}</Text>
-          </Pressable>
-          <View className="flex-row justify-between mt-1">
-            <Text className="text-xs text-gray-300">
-              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-            <View className="flex-row gap-x-2">
-              <TouchableOpacity onPress={() => handleReply(item)}>
-                <Ionicons name="return-up-back-outline" size={16} color="white" />
-              </TouchableOpacity>
-              {isMine && (
-                <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                  <Ionicons name="trash-outline" size={16} color="white" />
-                </TouchableOpacity>
-              )}
-              {isMine && item.delivered && !item.seen && (
-                <Ionicons name="checkmark" size={16} color="white" />
-              )}
-              {isMine && item.seen && (
-                <Ionicons name="checkmark-done" size={16} color="white" />
-              )}
-            </View>
-          </View>
-        </View>
-      </View>
-    );
   };
 
+  const handleScrollToReply = (item:string) => {
+    if (item) {
+      scrollToMessageById(item);
+    } else {
+      console.error("could not find the message");
+    }
+  };
 
-
+  const handleLongPress = (text:string) => {
+    Clipboard.setString(text);
+    ToastAndroid.show('Copied to clipboard', ToastAndroid.SHORT);
+  };
 
   return (
     <KeyboardAvoidingView
@@ -1056,27 +974,6 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
             </TouchableOpacity>
           </View>
 
-          {/* <TouchableOpacity
-      onPress={() => setShowDatePicker(true)}
-      className="mt-2 p-2 rounded bg-zinc-700 flex-row items-center justify-center"
-    >
-      <Ionicons name="calendar" size={18} color="white" style={{ marginRight: 6 }} />
-      <Text style={{ color: 'white' }}>
-        {selectedDate ? selectedDate.toDateString() : 'Filter by Date'}
-      </Text>
-    </TouchableOpacity>
-
-    {showDatePicker && (
-      <DateTimePicker
-        value={selectedDate || new Date()}
-        mode="date"
-        display="default"
-        onChange={(event, date) => {
-          setShowDatePicker(false);
-          if (date) setSelectedDate(date);
-        }}
-      />
-    )} */}
         </View>
       ) : (
         receiverDetails && (
@@ -1111,7 +1008,23 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         ref={flatListRef}
         data={decoratedMessages}
         inverted={true}
-        renderItem={renderMessage}
+        renderItem={({ item }) => {
+          if (!item) return null;
+          return (
+            <RenderMessage
+              item={item}
+              currentUserId={currentUserId}
+              highlightedMessageId={highlightedMessageId}
+              handleScrollToReply={handleScrollToReply}
+              getTextfromId={getTextfromId}
+              renderMedia={renderMedia}
+              handleMediaPress={handleMediaPress}
+              handleLongPress={handleLongPress}
+              handleReply={handleReply}
+              handleDelete={handleDelete}
+            />
+          );
+        }}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
         initialNumToRender={10} // Optimize for large lists
