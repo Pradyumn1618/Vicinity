@@ -310,7 +310,9 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
   useEffect(() => {
     if (timestampToshowDivider.current && decoratedMessages.length > 0) {
-      const index = decoratedMessages.findIndex(msg => msg.type === 'message' && msg.timestamp > timestampToshowDivider.current && msg.sender === receiver);
+      const index = timestampToshowDivider.current !== null 
+        ? decoratedMessages.findIndex(msg => msg.type === 'message' && timestampToshowDivider.current !== null && msg.timestamp > timestampToshowDivider.current && msg.sender === receiver)
+        : -1;
       if (index !== -1) {
         setUnreadIndex(index);
         setShowDivider(true);
@@ -418,7 +420,11 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         console.log("response", data);
         return data.messages;
       } catch (err) {
-        console.error("Failed to fetch messages:", err.message);
+        if (err instanceof Error) {
+          console.error("Failed to fetch messages:", err.message);
+        } else {
+          console.error("Failed to fetch messages:", err);
+        }
         return [];
       }
     }
@@ -438,14 +444,14 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         console.error('Failed to sync missed messages:', err);
       }
     };
-    const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
+    // const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
 
     if (lastTimestamp !== null) {
       const checkNetworkAndSync = async () => {
         const netInfo = await NetInfo.fetch();
         if (netInfo.isConnected) {
           syncMissedMessages();
-          syncMessages(cachedMessages, Date.now());
+          // syncMessages(cachedMessages, Date.now());
         }
       };
       checkNetworkAndSync();

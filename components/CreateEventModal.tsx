@@ -69,7 +69,9 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
             setLoading(true);
 
             // Generate geohash for the venue location
-            const geohash = geohashForLocation([form.location.lat, form.location.lng]).substring(0, 5);
+            const geohash5 = geohashForLocation([form.location.lat, form.location.lng]).substring(0, 5);
+            const geohash4 = geohash5.substring(0, 4);
+            const geohash3 = geohash5.substring(0, 3);
 
             // Fetch the username from Firestore
             const user = auth().currentUser;
@@ -101,7 +103,7 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                     form.location.lat,
                     form.location.lng
                 ),
-                geohash,
+                geohashes: [geohash5, geohash4, geohash3],
                 createdBy: username,
                 createdAt: serverTimestamp(),
                 allowedUsers: form.public ? [] : allowedUsers,

@@ -71,7 +71,7 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
     // 🔹 Query 1: Public nearby events
     const publicQuery = query(
       collection(db, 'Events'),
-      where('geohash', 'in', geohashesToQuery),
+      where('geohashes', 'array-contains-any', geohashesToQuery),
       where('public', '==', true)
     );
 
@@ -151,7 +151,12 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
   }, [distanceFilter, currentLocation, fetchNearbyEvents]);
 
   useEffect(() => {
+    let isRequestActive = false; // Track if a location request is active
+
     const getLocation = async () => {
+      if (isRequestActive) return; // Prevent overlapping requests
+      isRequestActive = true;
+
       try {
         const location = await GetLocation.getCurrentPosition({
           enableHighAccuracy: true,
@@ -161,9 +166,16 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
         setCurrentLocation({ lat: location.latitude, lng: location.longitude });
         fetchNearbyEvents([location.latitude, location.longitude]);
       } catch (error) {
-        Alert.alert('Location Error', 'Failed to fetch current location');
+        if ((error as { code: string }).code === 'CANCELLED') {
+          console.warn('Location request was cancelled.');
+        } else {
+          Alert.alert('Location Error', (error as any).message);
+        }
+      } finally {
+        isRequestActive = false; // Reset the state after the request completes
       }
     };
+
     getLocation();
   }, [fetchNearbyEvents]);
 
@@ -257,43 +269,43 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
 
 const styles = StyleSheet.create({
   headerText: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: 'white',
-      marginBottom: 16,
-      textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 16,
+    textAlign: 'center',
   },
   filterContainer: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
   filterButton: {
-      flex: 1,
-      padding: 12,
-      borderRadius: 8,
-      backgroundColor: '#444',
-      alignItems: 'center',
-      marginHorizontal: 4,
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#444',
+    alignItems: 'center',
+    marginHorizontal: 4,
   },
   activeFilterButton: {
-      backgroundColor: '#4caf50',
+    backgroundColor: '#4caf50',
   },
   filterText: {
-      color: 'white',
-      fontWeight: 'bold',
+    color: 'white',
+    fontWeight: 'bold',
   },
   createEventButton: {
-      backgroundColor: '#4caf50',
-      padding: 12,
-      borderRadius: 8,
-      alignItems: 'center',
-      marginBottom: 16,
+    backgroundColor: '#4caf50',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 16,
   },
   createEventButtonText: {
-      color: 'white',
-      fontSize: 16,
-      fontWeight: 'bold',
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
