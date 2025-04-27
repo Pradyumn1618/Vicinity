@@ -302,6 +302,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const handleStartChat = (user: { id: string; username: string; photoURL?: string }) => {
     setIsSearchUserModalVisible(false);
     setSearchText('');
+    setSearchResults([]);
     const chatId = generateChatId(user.id);
     resetUnreadCount(chatId);
     navigation.navigate('ChatScreen', { chatId: chatId, receiver: user.id });
@@ -522,7 +523,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
           </TouchableOpacity>
 
           {/* Search Users Modal */}
-          <Modal isVisible={isSearchUserModalVisible} onBackdropPress={() => setIsSearchUserModalVisible(false)}>
+          <Modal isVisible={isSearchUserModalVisible} onBackdropPress={() => {setIsSearchUserModalVisible(false);setSearchText('');setSearchResults([]);}}>
             <View style={modalContainerStyle}>
               <Text className="text-black text-lg font-semibold mb-4">Search Users</Text>
               <View style={searchInputWrapperStyle}>
@@ -688,6 +689,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
 }
 
 import { ViewStyle } from 'react-native';
+import { set } from 'date-fns';
 
 const fabStyle: ViewStyle = {
   position: 'absolute',

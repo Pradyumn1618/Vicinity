@@ -67,7 +67,7 @@ export const sendDeleteNotification = async (fcmTokens: string[], messageId: str
       token: fcmTokens, // pass array
       data: {
         'purpose': 'delete',
-        'customKey': messageId,
+        'customKey': String(messageId),
       }
     });
     console.log("Notification sent:", res.data);

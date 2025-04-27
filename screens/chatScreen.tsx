@@ -225,6 +225,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       console.log('getting receiver details')
       const details = await getReceiver(chatId);
       console.log('details', details);
+      if(!details) return;
       setReceiverDetails((prev: any) => ({
         ...prev,
         username: details.username,
@@ -364,6 +365,26 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     };
   }, [chatId, currentUserId, receiver, socket]);
 
+  const syncMessages = useCallback(async (fetchedMessages: Message[], beforeTimestamp: number) => {
+    // Step 1: Insert all fetched messages
+    for (const message of fetchedMessages) {
+      await insertMessage(message, chatId, receiver); // assume this already exists
+    }
+
+    // Step 2: Get local messages before timestamp
+    const localMessages = await getLocalMessages(chatId, beforeTimestamp, 20);
+    const localMessageIds = localMessages.map(msg => msg.messageId);
+
+    // Step 3: Compare with server messages and delete extra local ones
+    const serverMessageIds = fetchedMessages.map(msg => msg.id);
+    const extraLocalIds = localMessageIds.filter(id => !serverMessageIds.includes(id));
+
+    // Step 4: Delete extra local messages
+    for (const id of extraLocalIds) {
+      await deleteMessage(id);
+    }
+  }, [chatId, receiver]);
+
 
   useEffect(() => {
     async function fetchMessages(chatId: string, lastTimestamp: number = 0) {
@@ -417,16 +438,19 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         console.error('Failed to sync missed messages:', err);
       }
     };
+    const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
+
     if (lastTimestamp !== null) {
       const checkNetworkAndSync = async () => {
         const netInfo = await NetInfo.fetch();
         if (netInfo.isConnected) {
           syncMissedMessages();
+          syncMessages(cachedMessages, Date.now());
         }
       };
       checkNetworkAndSync();
     }
-  }, [chatId, lastTimestamp, receiver, setMessages])
+  }, [chatId, lastTimestamp, receiver, setMessages, syncMessages])
 
 
   useEffect(() => {
@@ -453,25 +477,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   }, [chatId, setMessages]); // Only run when chatId changes
 
 
-  const syncMessages = useCallback(async (fetchedMessages: Message[], beforeTimestamp: number) => {
-    // Step 1: Insert all fetched messages
-    for (const message of fetchedMessages) {
-      await insertMessage(message, chatId, receiver); // assume this already exists
-    }
-
-    // Step 2: Get local messages before timestamp
-    const localMessages = await getLocalMessages(chatId, beforeTimestamp, 20);
-    const localMessageIds = localMessages.map(msg => msg.messageId);
-
-    // Step 3: Compare with server messages and delete extra local ones
-    const serverMessageIds = fetchedMessages.map(msg => msg.id);
-    const extraLocalIds = localMessageIds.filter(id => !serverMessageIds.includes(id));
-
-    // Step 4: Delete extra local messages
-    for (const id of extraLocalIds) {
-      await deleteMessage(id);
-    }
-  }, [chatId, receiver]);
+  
 
   const loadMessages = useCallback(async () => {
     if (loadingMore || !hasMore) return;
@@ -574,6 +580,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         setUploading(true);
         const response = await fetch(attachedMedia.uri);
         const blob = await response.blob();
+        let cancelled = false;
 
         const storageRef = ref(storage, `chats/${chatId}/${attachedMedia.filename}`);
         const uploadTask = uploadBytesResumable(storageRef, blob);
@@ -595,6 +602,8 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
             setUploadProgress(0);
             setAttachedMedia(null);
             uploadTaskRef.current = null;
+            cancelled = true;
+            return;
           },
           async () => {
             console.log('Upload complete');
@@ -606,6 +615,10 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         );
 
         await uploadTask;
+        if (cancelled) {
+          console.log('Upload was cancelled');
+          return;
+        }
         // setMedia(mediaUrl);
         setUploading(false);
         setAttachedMedia(null);
@@ -636,6 +649,9 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     const reply = replyTo;
     setInputText('');
     setReplyTo(null);
+    let nmessage = { ...messageToDisplay, chatId: chatId, receiver: receiver };
+    sendDMNotification([receiverDetails?.fcmToken], nmessage);
+    socket.emit('send-dm', { message: nmessage });
 
 
 
@@ -694,9 +710,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     setReplyTo(null);
     // setMedia(null); // Clear media after sending
     setUploadProgress(0);
-    let nmessage = { ...messageToDisplay, chatId: chatId, receiver: receiver };
-    sendDMNotification([receiverDetails?.fcmToken], nmessage);
-    socket.emit('send-dm', { message: nmessage });
+   
   };
 
   const handleAttachMedia = async () => {
