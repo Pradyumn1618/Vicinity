@@ -689,7 +689,6 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
 }
 
 import { ViewStyle } from 'react-native';
-import { set } from 'date-fns';
 
 const fabStyle: ViewStyle = {
   position: 'absolute',

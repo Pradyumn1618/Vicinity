@@ -8,6 +8,7 @@ import { NavigationProp, useFocusEffect } from "@react-navigation/native";
 // import { PermissionsAndroid } from "react-native";
 // import * as geofire from 'geofire-common';
 import mmkv from "../storage";
+import { syncMessages } from "../helper/databaseHelper";
 // import { openSettings } from 'react-native-permissions';
 
 
@@ -63,6 +64,12 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             if (docSnap.exists) {
                 const data = docSnap.data();
                 if (data?.username) {
+                    const token = await auth().currentUser?.getIdToken();
+                    if (token) {
+                        syncMessages(token);
+                    } else {
+                        console.error("Failed to retrieve token.");
+                    }
                     navigation.reset({ index: 0, routes: [{ name: "Home" }] });
                 }
             } else {

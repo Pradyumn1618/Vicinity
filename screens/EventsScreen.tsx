@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { View, Text, Button, Alert, FlatList, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import { distanceBetween } from 'geofire-common';
@@ -8,6 +9,7 @@ import GetLocation from 'react-native-get-location';
 import EventCard from '../components/EventCard';
 import CreateEventModal from '../components/CreateEventModal'; // Import the new component
 import auth from '@react-native-firebase/auth';
+import { ToastAndroid } from 'react-native';
 
 interface Event {
   id: string;
@@ -20,6 +22,7 @@ interface Event {
   public: boolean;
   createdBy: string;
   allowedUsers?: string[];
+  notifierUsers?: string[];
 }
 
 const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
@@ -29,6 +32,7 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null); // Track expanded card
   const [distanceFilter, setDistanceFilter] = useState<'nearby' | 'far' | 'farther'>('nearby');
+  const [notificationStatus, setNotificationStatus] = useState<{ [key: string]: boolean }>({});
   const db = getFirestore();
 
   const fetchNearbyEvents = React.useCallback((center: [number, number]) => {
@@ -102,9 +106,11 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
           public: data.public,
           createdBy: data.createdBy,
           allowedUsers: data.allowedUsers || [],
+          notifierUsers: data.notifierUsers || [],
         };
 
-        if (event.dateTime > now) {
+        const oneHourBeforeNow = new Date(now.getTime() - 60 * 60 * 1000); // Subtract 1 hour
+        if (event.dateTime > oneHourBeforeNow) {
           if (isPublic) {
             const distance = distanceBetween(
               [event.location._latitude, event.location._longitude],
@@ -127,6 +133,17 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
       });
 
       setEvents(sorted.slice(0, 10));
+
+      const currentUser = auth().currentUser;
+      const userId = currentUser?.uid;
+      if (userId) {
+        const notificationState = sorted.reduce<{ [key: string]: boolean }>((acc, event) => {
+          acc[event.id] = event.notifierUsers.includes(userId);
+          return acc;
+        }, {});
+        setNotificationStatus(notificationState);
+      }
+
       setLoading(false);
     };
 
@@ -185,11 +202,75 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
   const renderEventCard = ({ item }: { item: Event }) => {
     const isExpanded = expandedEventId === item.id;
 
+    const now = new Date();
+    const eventTime = new Date(item.dateTime);
+    const isNotificationDisabled = eventTime.getTime() - now.getTime() <= 30 * 60 * 1000; // 30 minutes
+
+    const isNotificationEnabled = notificationStatus[item.id] || false;
+
+    const handleNotificationPress = async (eventId: string, eventTitle: string) => {
+      const currentUser = auth().currentUser;
+      const userId = currentUser?.uid;
+
+      if (!userId) {
+        ToastAndroid.show('You must be logged in to manage notifications.', ToastAndroid.SHORT);
+        return;
+      }
+
+      const eventRef = collection(db, 'Events').doc(eventId);
+      const eventDoc = await eventRef.get();
+
+      if (!eventDoc.exists) {
+        ToastAndroid.show('Event not found.', ToastAndroid.SHORT);
+        return;
+      }
+
+      const eventData = eventDoc.data();
+      const notifierUsers = eventData?.notifierUsers || [];
+      const isEnabled = notifierUsers.includes(userId);
+
+      if (isEnabled) {
+        // Remove user from notifierUsers
+        await eventRef.update({
+          notifierUsers: notifierUsers.filter((id: string) => id !== userId),
+        });
+        ToastAndroid.show(`Notifications for "${eventTitle}" have been turned off.`, ToastAndroid.SHORT);
+      } else {
+        // Add user to notifierUsers
+        await eventRef.update({
+          notifierUsers: [...notifierUsers, userId],
+        });
+        ToastAndroid.show(`You will be notified for the event: "${eventTitle}".`, ToastAndroid.SHORT);
+      }
+
+      // Update local state
+      setNotificationStatus((prev) => ({
+        ...prev,
+        [eventId]: !isEnabled,
+      }));
+    };
+
     return (
       <EventCard
         event={item}
         isExpanded={isExpanded}
         onPress={() => toggleExpand(item.id)}
+        renderRightAction={() => (
+          <TouchableOpacity
+            onPress={() => handleNotificationPress(item.id, item.title)}
+            disabled={isNotificationDisabled}
+            style={{
+              opacity: isNotificationDisabled ? 0.5 : 1, // Dim the icon if disabled
+              marginLeft: 8,
+            }}
+          >
+            <Ionicons
+              name={isNotificationEnabled ? 'notifications' : 'notifications-off'}
+              size={24}
+              color="white"
+            />
+          </TouchableOpacity>
+        )}
       />
     );
   };

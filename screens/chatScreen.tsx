@@ -24,9 +24,10 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import ImageViewing from "react-native-image-viewing";
 
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB } from '../helper/databaseHelper';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB, CheckAndLoadMessage } from '../helper/databaseHelper';
 import { DownloadHeader } from '../components/downLoad';
 import RenderMessage from '../components/renderMessage';
+import { set } from 'date-fns';
 
 
 
@@ -918,7 +919,31 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       />);
   }, [selectedMedia, downloadAndSaveToGallery, modalVisible]);
 
-  const scrollToMessageById = (messageId: string) => {
+  const waitForMessageIndexInMap = (
+    messageId: string,
+    timeout = 2000,
+    interval = 100
+  ): Promise<number | null> => {
+    return new Promise((resolve) => {
+      const start = Date.now();
+
+      const check = () => {
+        const index = messageIdToIndexMap[messageId];
+        if (index !== undefined) {
+          resolve(index);
+        } else if (Date.now() - start >= timeout) {
+          resolve(null); // fallback after timeout
+        } else {
+          setTimeout(check, interval);
+        }
+      };
+
+      check();
+    });
+  };
+
+
+  const scrollToMessageById = async (messageId: string) => {
     const targetIndex = messageIdToIndexMap[messageId];
     console.log('targetIndex:', targetIndex);
     if (targetIndex !== undefined) {
@@ -930,11 +955,33 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       setHighlightedMessageId(messageId); // for highlight effect
       setTimeout(() => setHighlightedMessageId(null), 2000);
     } else {
-      console.warn('Message ID not found in map:', messageId);
+      const newMessages = await CheckAndLoadMessage(chatId, messageId, messages[messages.length - 1].timestamp);
+      if (!newMessages) {
+        ToastAndroid.show('Could not find the message', ToastAndroid.SHORT);
+        return;
+      }
+      setMessages((prevMessages) => {
+        const combined = [...newMessages, ...prevMessages];
+        return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
+      }
+      );
+      const index = await waitForMessageIndexInMap(messageId);
+      if (index !== null) {
+        flatListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0.5,
+        });
+        setHighlightedMessageId(messageId);
+        setTimeout(() => setHighlightedMessageId(null), 2000);
+      } else {
+        ToastAndroid.show('Could not scroll to message', ToastAndroid.SHORT);
+      }
+
     }
   };
 
-  const handleScrollToReply = (item:string) => {
+  const handleScrollToReply = (item: string) => {
     if (item) {
       scrollToMessageById(item);
     } else {
@@ -942,7 +989,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     }
   };
 
-  const handleLongPress = (text:string) => {
+  const handleLongPress = (text: string) => {
     Clipboard.setString(text);
     ToastAndroid.show('Copied to clipboard', ToastAndroid.SHORT);
   };
@@ -1008,11 +1055,12 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         ref={flatListRef}
         data={decoratedMessages}
         inverted={true}
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           if (!item) return null;
           return (
             <RenderMessage
               item={item}
+              index={index}
               currentUserId={currentUserId}
               highlightedMessageId={highlightedMessageId}
               handleScrollToReply={handleScrollToReply}
@@ -1041,6 +1089,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
             });
           }, 300); // wait for layout
         }}
+        extraData={highlightedMessageId}
       />
 
       {attachedMedia && (
