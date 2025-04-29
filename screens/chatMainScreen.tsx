@@ -11,7 +11,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Modal from 'react-native-modal';
 // import { getDatabase, ref, onValue } from '@react-native-firebase/database';
 import useNearbyOnlineUsers from '../helper/onlineUsers';
-import { insertOrUpdateChatInSQLite, getAllChatsFromSQLite, resetUnreadCount } from '../helper/databaseHelper';
+import { insertOrUpdateChatInSQLite, getAllChatsFromSQLite, resetUnreadCount, getGroupUnreadCount } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
@@ -32,8 +32,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const [tab, setTab] = useState('messages'); // Active tab
   const [searchText, setSearchText] = useState(''); // Search input text
   const onlineUsers = useNearbyOnlineUsers(); // Online users
-  const { chats, setChats } = useChatContext(); // Direct messages
-  const [groups, setGroups] = useState<Group[]>([]); // Groups
+  const { chats, setChats,groups,setGroups } = useChatContext(); // Direct messages
   const [isGroupModalVisible, setIsGroupModalVisible] = useState(false); // Modal visibility
   const [searchResults, setSearchResults] = useState<{ id: string; username: string; photoURL?: string }[]>([]); // Search results
 
@@ -160,44 +159,42 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
       const fetchUserGroups = async () => {
         const userId = auth.currentUser?.uid;
         if (!userId) return;
-
+      
         const userRef = doc(db, 'users', userId);
         const userSnap = await getDoc(userRef);
         const userData = userSnap.data();
-
+      
         if (!userData || !userData.groups || userData.groups.length === 0) {
           console.error('❌ User data or groups are missing');
-          setGroups([]); // Optionally clear group list if user has none
+          setGroups([]);
           return;
         }
-
-        const groupsRef = collection(db, 'groups');
-        const groupsQuery = query(
-          groupsRef,
-          where(firestore.FieldPath.documentId(), 'in', userData.groups)
-        );
-
-        unsubscribeFirestore = onSnapshot(groupsQuery, async (snapshot) => {
-          const groupList = await Promise.all(
-            snapshot.docs.map(async (d) => {
-              const groupData = d.data();
-              const groupId = d.id;
-
+      
+        try {
+          const groupPromises = userData.groups.map(async (groupId) => {
+            const groupRef = doc(db, 'groups', groupId);
+            const docSnap = await getDoc(groupRef);
+      
+            if (docSnap.exists) {
+              const groupData = docSnap.data();
               return {
                 id: groupId,
                 name: groupData?.name,
                 photoURL: groupData?.photoURL || null,
-                time: groupData?.lastMessageTime || null,
-                message: groupData?.lastMessage || '',
-                lastSender: groupData?.lastSender || null,
+                unreadCount: await getGroupUnreadCount(groupId),
               };
-            })
-          );
-
+            } else {
+              return null;
+            }
+          });
+      
+          const groupList = (await Promise.all(groupPromises)).filter(Boolean);
           setGroups(groupList);
-        });
+        } catch (error) {
+          console.error('🔥 Error fetching group docs:', error);
+        }
       };
-
+      
       fetchUserGroups();
 
       return () => {
@@ -569,6 +566,16 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
               />
               <View className="flex-1">
                 <Text className="text-white font-semibold">{item.name}</Text>
+              </View>
+              <View className="flex-row items-center">
+                {item.unreadCount && item.unreadCount > 0 && (
+                  <View
+                    className="bg-blue-500 rounded-full px-2 py-1"
+                    style={{ backgroundColor: '#4F46E5', borderRadius: 9999 }}
+                  >
+                    <Text className="text-white text-xs">{item.unreadCount}</Text>
+                  </View>
+                )}
               </View>
             </TouchableOpacity>
           )}

@@ -3,15 +3,16 @@ import React from "react";
 import { Pressable, Text, TouchableOpacity, View } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 
+
 interface Message {
   id: string;
   text: string;
   sender: string;
+  senderName: string;
   timestamp: number;
   media?: string | null;
-  replyTo?: string | null;
-  delivered?: boolean;
-  seen?: boolean;
+  replyTo?: {senderName:string, text:string, id:string} | null;
+  delivered?: boolean | null;
 }
 
 type DividerItem = {
@@ -28,7 +29,6 @@ interface RenderMessageProps {
   currentUserId?: string | null; // The ID of the current user
   highlightedMessageId?: string | null; // The ID of the highlighted message for styling
   handleScrollToReply: (messageId: string) => void; // Function to scroll to the message being replied to
-  getTextfromId: (id: string) => string; // Function to get text of a message by ID (for reply)
   renderMedia: (mediaUrl: string, onPress: () => void) => JSX.Element | null; // Function to render media (image/video)
   handleMediaPress: (mediaUrl: string) => void; // Function to handle media press (e.g., view media)
   handleLongPress: (messageText: string) => void; // Function to handle long press on a message (e.g., copy)
@@ -36,13 +36,12 @@ interface RenderMessageProps {
   handleDelete: (messageId: string) => void; // Function to handle deleting a message
 }
 
-const RenderMessage = ({
+const RenderGroupMessage = ({
   item,
   index,
   currentUserId,
   highlightedMessageId,
   handleScrollToReply,
-  getTextfromId,
   renderMedia,
   handleMediaPress,
   handleLongPress,
@@ -81,14 +80,20 @@ const RenderMessage = ({
 
         {item.replyTo && (
           <View className="mb-2">
-            <TouchableOpacity onPress={() => handleScrollToReply(item.replyTo || '')}>
+            <TouchableOpacity onPress={() => handleScrollToReply(item.replyTo.id || '')}>
               <View className="flex-row items-center mb-1">
                 <View className="h-full border-l-2 border-white mr-2" />
-                <Text className="text-white text-xs italic">Reply: {getTextfromId(item.replyTo)}</Text>
+                <Text className="text-white text-xs bold">{item.replyTo.senderName}</Text>
+                <Text className="text-white text-xs italic">{item.replyTo.text}</Text>
               </View>
             </TouchableOpacity>
 
           </View>
+        )}
+        {item.senderName && !isMine && (
+          <Text className="text-xs text-gray-300 font-semibold mb-1">
+            {item.senderName}
+          </Text>
         )}
 
         {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
@@ -110,11 +115,8 @@ const RenderMessage = ({
                 <Ionicons name="trash-outline" size={16} color="white" />
               </TouchableOpacity>
             )}
-            {isMine && item.delivered && !item.seen && (
+            {isMine && item.delivered && (
               <Ionicons name="checkmark" size={16} color="white" />
-            )}
-            {isMine && item.seen && (
-              <Ionicons name="checkmark-done" size={16} color="white" />
             )}
           </View>
         </View>
@@ -125,7 +127,7 @@ const RenderMessage = ({
   );
 };
 
-export default React.memo(RenderMessage, (prevProps, nextProps) => {
+export default React.memo(RenderGroupMessage, (prevProps, nextProps) => {
   return (
     prevProps.item.id === nextProps.item.id &&
     prevProps.highlightedMessageId === nextProps.highlightedMessageId

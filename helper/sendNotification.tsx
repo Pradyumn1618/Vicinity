@@ -1,5 +1,6 @@
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { getFirestore, doc, getDoc } from '@react-native-firebase/firestore';
+import { group } from 'console';
 
 const functions = getFunctions();
 const sendNotification = httpsCallable(functions, "sendNotification");
@@ -76,19 +77,68 @@ export const sendDeleteNotification = async (fcmTokens: string[], messageId: str
   }
 }
 
-export const sendGroupNotification = async (fcmTokens: string[], message ,groupName:String) => {
-  if (fcmTokens.length === 0) return;
+export const sendGroupNotification = async (groupId: string, message, currentUser:string,replyTo: string = null) => {
+  const fdb = getFirestore();
+  const groupRef = doc(fdb, 'groups', groupId);
+  const groupSnap = await getDoc(groupRef);
+  const groupData = groupSnap.data();
+  if (!groupData) {
+    console.error("Group data not found");
+    return;
+  }
+  let replyToSender = null;
+  if(!replyTo){
+  const messageRef = doc(fdb, 'groups', groupId, 'messages', replyTo);
+  const messageSnap = await getDoc(messageRef);
+  const messageData = messageSnap.data();
+  if (!messageData) {
+    console.error("Message data not found");
+    return;
+  }
+  replyToSender = messageData.sender;
+  const senderRef = doc(fdb, 'users', messageData.sender);
+  const senderSnap = await getDoc(senderRef);
+  const token = senderSnap.data()?.fcmToken;
+  if (token) {
+    try {
+      const res = await sendNotification({
+        token: [token], // pass array
+        title: `${groupData.groupName}:${message.senderName} replied to your message`,
+        body: message.text,
+        data: {
+          purpose: 'group-message',
+          customKey: String(groupId),
+          sender: String(message.sender),
+          id: String(message.id),
+        }
+      });
+      console.log("Notification sent:", res.data);
+    } catch (err) {
+      console.error("Error sending notification:", err);
+    }
+  }
+
+}
+
+  const members = groupData.members;
+  const fcmTokens = members.map(async (member) => {
+    if (member === currentUser) return undefined;
+    if (member === replyToSender) return undefined;
+    const userRef = doc(fdb, 'users', member);
+    const userSnap = await getDoc(userRef);
+    return userSnap.data()?.fcmToken;
+  }).filter(token => token !== undefined);
   
   try {
     const res = await sendNotification({
       token: fcmTokens, // pass array
-      title: `${groupName}:${message.senderName} sent a message`,
+      title: `${groupData.groupName}:${message.senderName} sent a message`,
       body: message.text,
       data: {
-        purpose: 'group',
+        purpose: 'group-message',
         sender: String(message.sender),
         id: String(message.id),
-        groupId: String(message.groupId),
+        customKey: String(groupId),
       }
     });
     console.log("Notification sent:", res.data);
@@ -125,5 +175,7 @@ export const sendAddedToGroupNotification = async (fcmTokens: string[], groupNam
     console.error("Error sending notification:", err);
   }
 }
+
+
 
 export default sendNotificationAsync;

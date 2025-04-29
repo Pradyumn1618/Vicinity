@@ -68,6 +68,51 @@ export const incrementUnreadCount = async (chatId: string) => {
     );
 };
 
+export const incrementGroupUnreadCount = async (groupId: string) => {
+    const db = await getDBConnection();
+    console.log('Incrementing unread count for groupId:', groupId);
+    await db.executeSql(
+        'UPDATE groupUnreadCounts SET count = count + 1 WHERE groupId = ?',
+        [groupId]
+    );
+    await db.executeSql(
+        'INSERT INTO groupUnreadCounts (groupId, count) SELECT ?, 1 WHERE NOT EXISTS (SELECT 1 FROM groupUnreadCounts WHERE groupId = ?)',
+        [groupId, groupId]
+    );
+}
+
+export const getGroupUnreadCount = async (groupId: string) => {
+    const db = await getDBConnection();
+    const results = await db.executeSql(
+        'SELECT count FROM groupUnreadCounts WHERE groupId = ?',
+        [groupId]
+    );
+    const rows = results[0].rows;
+    if (rows.length > 0) {
+        return rows.item(0).count;
+    }
+    return 0;
+}
+
+export const decrementGroupUnreadCount = async (groupId: string) => {
+    const db = await getDBConnection();
+    console.log('Decrementing unread count for groupId:', groupId);
+    await db.executeSql(
+        'UPDATE groupUnreadCounts SET count = count - 1 WHERE groupId = ? AND count > 0',
+        [groupId]
+    );
+}
+
+export const resetGroupUnreadCount = async (groupId: string) => {
+    const db = await getDBConnection();
+    console.log('Resetting unread count for groupId:', groupId);
+    await db.executeSql(
+        'INSERT OR REPLACE INTO groupUnreadCounts (groupId, count) VALUES (?, ?)',
+        [groupId, 0]
+    );
+    console.log('Reset unread count for groupId:', groupId);
+}
+
 export const decrementUnreadCount = async (chatId: string) => {
     const db = await getDBConnection();
     console.log('Decrementing unread count for chatId:', chatId);
@@ -241,6 +286,48 @@ export const getLocalMessages = async (chatId: string, beforeTimestamp: number, 
     }
 };
 
+export const insertIntoDeletedGroupMessages = async (messageId: string, groupId:string) => {
+    const db = await getDBConnection();
+    try {
+        await db.executeSql(
+            'INSERT OR IGNORE INTO deletedGroupMessages (id, groupId) VALUES (?, ?)',
+            [messageId, groupId]
+        );
+    } catch (error) {
+        console.log('Error inserting into deletedGroupMessages:', error);
+    }
+}
+
+export const getDeletedGroupMessages = async (): Promise<{ id: string; groupId: string }[] | null> => {
+    const db = await getDBConnection();
+    try {
+        const results = await db.executeSql('SELECT * FROM deletedGroupMessages', []);
+        const rows = results[0].rows;
+        const deletedGroupMessages: { id: string; groupId: string }[] = [];
+        for (let i = 0; i < rows.length; i++) {
+            deletedGroupMessages.push(rows.item(i));
+        }
+        return deletedGroupMessages;
+    } catch (error) {
+        console.log('Error fetching deleted group messages:', error);
+        return null;
+    }
+};
+
+export const deleteFromDeletedGroupMessages = async (messageId: string) => {
+    const db = await getDBConnection();
+    try {
+        await db.executeSql(
+            'DELETE FROM deletedGroupMessages WHERE id = ?',
+            [messageId]
+        );
+    } catch (error) {
+        console.log('Error deleting message from deletedGroupMessages:', error);
+    }
+};
+
+
+
 export const insertIntoDeletedMessages = async (messageId: string, chatId: string, receiver: string) => {
     const db = await getDBConnection();
     try {
@@ -334,6 +421,34 @@ export const syncOfflineDeletions = async () => {
         await db.executeSql('DELETE FROM deletedMessages', []);
     } catch (error) {
         console.log('Error syncing deleted messages:', error);
+        throw error;
+    }
+};
+
+
+export const syncDeletedGroupMessages = async () => {
+    try {
+        const db = await getDBConnection();
+        const deletedGroupMessages = await getDeletedGroupMessages();
+        if (deletedGroupMessages) {
+            if (!deletedGroupMessages || !Array.isArray(deletedGroupMessages)) {
+                console.log('No deleted group messages to sync.');
+                return;
+            }
+            for (const message of deletedGroupMessages) {
+                const { id, groupId } = message;
+
+                socket.emit('group-message-deleted', { messageId: id, groupId: groupId });
+
+                // Reference to the message in Firestore
+                const messageRef = doc(fdb, 'groups', groupId, 'messages', id);
+                await deleteDoc(messageRef);
+            }
+        }
+        console.log('Deleted group messages synced successfully');
+        await db.executeSql('DELETE FROM deletedGroupMessages', []);
+    } catch (error) {
+        console.log('Error syncing deleted group messages:', error);
         throw error;
     }
 }

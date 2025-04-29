@@ -12,11 +12,12 @@ import InAppNotification from './components/inAppNotification';
 import { getDBConnection, createTables } from './config/database';
 import { ChatProvider } from './context/chatContext';
 import { useChatContext } from './context/chatContext';
-import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessage, decrementUnreadCount, syncOfflineDeletions } from './helper/databaseHelper';
+import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessage, decrementUnreadCount, syncOfflineDeletions, incrementGroupUnreadCount } from './helper/databaseHelper';
 import { Buffer } from 'buffer';
 import PushNotification from 'react-native-push-notification';
 import { navigationRef } from './helper/navigationService'; // adjust path
 import { send } from 'process';
+import { set } from 'date-fns';
 
 
 
@@ -32,7 +33,14 @@ const AppContent = () => {
     sender?: string;
   }
 
+  interface GroupNotificationData {
+    title: string;
+    body: string;
+    groupId?: string;
+  }
+
   const [notificationData, setNotificationData] = useState<NotificationData | null>(null);
+  const [groupNotificationData, setGroupNotificationData] = useState<GroupNotificationData | null>(null);
 
   // 1. Create Notification Channel (only needed once)
 
@@ -73,6 +81,9 @@ const AppContent = () => {
         const chatId = remoteMessage.data?.customKey ?? '';
         console.log(chatId, sender);
         navigationRef.navigate('ChatScreen', { chatId, receiver: sender });
+      }else if(user && navigationRef.isReady() && remoteMessage.data?.purpose === 'group-message'){
+        const groupId = remoteMessage.data?.customKey ?? '';
+        navigationRef.navigate('GroupChatScreen', {groupId});
       }
     });
 
@@ -107,6 +118,10 @@ const AppContent = () => {
             }
             return;
           }
+        }
+        if (remoteMessage.notification && remoteMessage.data?.purpose === 'group-message') {
+          incrementGroupUnreadCount(remoteMessage.data.customKey);
+          return;
         }
       }
     };
@@ -183,6 +198,20 @@ const AppContent = () => {
           console.log('No message ID provided for deletion');
         }
         return;
+      } else if(purpose === 'group-message') {
+        // Handle group message notification
+        const groupId = remoteMessage.data?.customKey;
+        if (groupId ===  currentChatId) {
+          console.log('Same group chat — no notification shown');
+          return; // Don't show notification
+        } else {
+          setGroupNotificationData({
+            title: remoteMessage.notification?.title || 'New Group Message',
+            body: remoteMessage.notification?.body || 'You have a new group message.',
+            groupId: groupId ?? '',
+          });
+        }
+        return;
       }
       // Handle other types of notifications (e.g., delete, alert)
       const title = data.title || 'Notification';
@@ -237,6 +266,50 @@ const AppContent = () => {
     }
     setNotificationData(null);
   };
+
+  const handleGroupNotificationPress = () => {
+    if (groupNotificationData?.groupId) {
+      navigationRef.navigate('GroupChatScreen', {
+        groupId: groupNotificationData.groupId,
+      });
+    }
+    setGroupNotificationData(null);
+  };
+
+  messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+    console.log('Background notification received:', remoteMessage);
+    if (remoteMessage.data) {
+      if (remoteMessage.data.purpose === 'dm') {
+        const message = {
+          id: remoteMessage.data.id,
+          sender: remoteMessage.data.sender,
+          text: remoteMessage.data.text,
+          media: remoteMessage.data.media,
+          replyTo: remoteMessage.data.replyTo,
+          timestamp: remoteMessage.data.timestamp,
+          delivered: remoteMessage.data.delivered,
+          seen: remoteMessage.data.seen,
+        }
+        await insertMessage(message,remoteMessage.data.customKey, remoteMessage.data.receiver);
+        incrementUnreadCount(remoteMessage.data.customKey);
+        return;
+      }else if (remoteMessage.data.purpose === 'delete') {
+        const messageId = remoteMessage.data?.customKey;
+        if (messageId) {
+          await deleteMessage(messageId);
+          decrementUnreadCount(remoteMessage.data.customKey);
+          console.log('Message deleted:', messageId);
+        } else {
+          console.log('No message ID provided for deletion');
+        }
+        return;
+      }else if(remoteMessage.data.purpose === 'group-message'){
+        incrementGroupUnreadCount(remoteMessage.data.customKey);
+        return;
+      }
+    }
+    
+  });
   return (
     <>
       {notificationData && (
@@ -245,6 +318,14 @@ const AppContent = () => {
           body={notificationData.body}
           onPress={handleNotificationPress}
           onClose={() => setNotificationData(null)}
+        />
+      )}
+      {groupNotificationData && (
+        <InAppNotification
+          title={groupNotificationData.title}
+          body={groupNotificationData.body}
+          onPress={handleGroupNotificationPress}
+          onClose={() => setGroupNotificationData(null)}
         />
       )}
       <NavigationContainer ref={navigationRef}>

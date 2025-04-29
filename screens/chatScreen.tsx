@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useLayoutEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator, ToastAndroid, PermissionsAndroid, Pressable } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator, ToastAndroid, PermissionsAndroid } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { getAuth } from '@react-native-firebase/auth';
 import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc } from '@react-native-firebase/firestore';
@@ -27,7 +27,6 @@ import ImageViewing from "react-native-image-viewing";
 import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB, CheckAndLoadMessage } from '../helper/databaseHelper';
 import { DownloadHeader } from '../components/downLoad';
 import RenderMessage from '../components/renderMessage';
-import { set } from 'date-fns';
 
 
 

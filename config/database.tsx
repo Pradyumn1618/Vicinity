@@ -53,8 +53,21 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
   `
   );
 
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS deletedGroupMessages (
+    id TEXT PRIMARY KEY,
+    groupId TEXT,
+  );
+    `
+  );
 
-
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS groupUnreadCounts (
+    groupId TEXT PRIMARY KEY,
+    count INTEGER,
+    UnreadTimestamp INTEGER,
+  );`
+  );
 };
 
 export const closeDB = async (db: SQLite.SQLiteDatabase) => {

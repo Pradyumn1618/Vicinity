@@ -5,7 +5,7 @@ import firestore from '@react-native-firebase/firestore';
 import { AppState } from 'react-native';
 import socket from '../config/socket';
 import { createContext, useContext } from 'react';
-import { insertMessage, incrementUnreadCount, deleteMessage, decrementUnreadCount, setSeenMessages } from '../helper/databaseHelper';
+import { insertMessage, incrementUnreadCount, deleteMessage, decrementUnreadCount, setSeenMessages, incrementGroupUnreadCount, decrementGroupUnreadCount } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
 
 const SocketContext = createContext(socket);
@@ -23,7 +23,7 @@ interface Message {
 }
 
 export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
-  const { setMessages, currentChatId, setChats } = useChatContext();
+  const { setMessages, currentChatId, setChats, setGroups } = useChatContext();
   const userGeohashRef = useRef<string | null>(null);
   const connectedRef = useRef(false);
 
@@ -57,6 +57,17 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
           setMessages((prev: Message[]) => prev.filter((message) => message.id !== messageId));
         } else {
           decrementUnreadCount(chatId);
+          setChats((prevChats) =>
+            prevChats.map((chat) => {
+              if (chat.id === chatId) {
+                return {
+                  ...chat,
+                  unreadCount: chat.unreadCount ? chat.unreadCount - 1 : 0,
+                };
+              }
+              return chat;
+            })
+          );
         }
 
       });
@@ -116,11 +127,61 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         }
       });
 
+      socket.on('receive-group-message', async (msg) => {
+        if (!msg) return;
+        // Store encrypted message locally
+    
+        // insertMessage(msg, msg.groupId, myUid);
+
+        if (currentChatId === msg.groupId) {
+          msg.seen = true;
+          console.log('Received group message:', msg);
+          setMessages((prev: Message[]) => [msg,...prev]);
+        } else {
+          console.log('Received group message in background');
+
+          await incrementGroupUnreadCount(msg.groupId);
+          setGroups((prevChats) =>
+            prevChats.map((chat) => {
+              if (chat.id === msg.groupId) {
+                return {
+                  ...chat,
+                  unreadCount: (chat.unreadCount || 0) + 1,
+                };
+              }
+              return chat;
+            })
+          );
+        }
+      });
+
+      socket.on('delete-group-message', async (msg) => {
+        const { messageId, groupId } = msg;
+        // deleteMessage(messageId);
+        if (currentChatId === groupId) {
+          setMessages((prev: Message[]) => prev.filter((message) => message.id !== messageId));
+        } else {
+          decrementGroupUnreadCount(groupId);
+          setGroups((prevChats) =>
+            prevChats.map((chat) => {
+              if (chat.id === groupId) {
+                return {
+                  ...chat,
+                  unreadCount: chat.unreadCount ? chat.unreadCount - 1 : 0,
+                };
+              }
+              return chat;
+            })
+          );
+        }
+
+      });
+
 
     } catch (err) {
       console.error('🔥 Error connecting with geohash:', err);
     }
-  }, [currentChatId, setMessages, setChats]);
+  }, [currentChatId, setMessages, setChats, setGroups]);
 
   useEffect(() => {
     const handleAuthChange = (user: any) => {
