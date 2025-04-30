@@ -13,7 +13,7 @@ import messaging from '@react-native-firebase/messaging';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { requestLocationPermission, startLocationTracking,requestNotificationPermission } from '../helper/locationPermission';
 import { promptForEnableLocationIfNeeded } from 'react-native-android-location-enabler';
-import { setupKeys } from '../helper/cryptoUtils';
+import NavigationBar from '../components/NavigationBar';
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
@@ -27,7 +27,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     if (user) {
       requestNotificationPermission();
       refreshFcmToken();
-      setupKeys();
+
     }
   }, []);
 
@@ -117,20 +117,6 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     }, [checkAuthentication])
   );
 
-  const handleLogout = async () => {
-    try {
-      await auth().signOut();
-      mmkv.delete('user');
-      mmkv.delete('geohash');
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
-    } catch (error) {
-      console.error("Failed to logout:", error);
-    }
-  }
-
   const sendNotification = async () => {
     const user = auth().currentUser;
     if (!user) return;
@@ -168,85 +154,9 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
       <Text className="text-white text-xl">Home Screen</Text>
       <Button title="Send Noti" onPress={() => sendNotification()} color="#4F46E5" /> {/* Optional custom color for visibility */}
 
-      {/* Bottom Navigation Buttons */}
-      <View className="absolute bottom-5 left-5 right-5 flex-row justify-around bg-zinc-900 py-3 rounded-xl shadow-lg border border-zinc-800" >
-        <TouchableOpacity onPress={() => navigation.navigate('Events')} className="items-center">
-          <Ionicons name="newspaper-outline" size={24} color="white" />
-          <Text className="text-white text-xs mt-1">Events</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate('Profile')} className="items-center">
-          <Ionicons name="person-outline" size={24} color="white" />
-          <Text className="text-white text-xs mt-1">Profile</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate('Inbox')} className="items-center">
-          <Ionicons name="chatbubble-outline" size={24} color="white" />
-          <Text className="text-white text-xs mt-1">Chat</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={handleLogout} className="items-center">
-          <Ionicons name="log-out-outline" size={24} color="white" />
-          <Text className="text-white text-xs mt-1">Logout</Text>
-        </TouchableOpacity>
-      </View>
+     <NavigationBar/>
     </View>
   );
 };
 
 export default HomeScreen;
-
-// import React, { useEffect, useState, useCallback } from "react";
-// import { View, FlatList, RefreshControl } from "react-native";
-// import { MMKV } from 'react-native-mmkv';
-// // import { fetchRecommendedPosts } from "../api/recommendations";
-// // import geohash from "ngeohash";
-// import PostCard from "../components/PostCard";
-
-// const mmkv = new MMKV();
-
-// const HomeScreen = () => {
-//     const [posts, setPosts] = useState([]);
-//     const [refreshing, setRefreshing] = useState(false);
-//     const userGeohash = getUserGeohashRegion();
-
-//     useEffect(() => {
-//         loadPosts();
-//     }, []);
-
-//     const loadPosts = async () => {
-//         const cachedPosts = mmkv.getString(`posts_${userGeohash}`);
-//         if (cachedPosts) {
-//             setPosts(JSON.parse(cachedPosts));
-//         }
-//         fetchAndCachePosts();
-//     };
-
-//     const fetchAndCachePosts = async () => {
-//         try {
-//             const newPosts = await fetchRecommendedPosts(userGeohash);
-//             setPosts(newPosts);
-//             mmkv.set(`posts_${userGeohash}`, JSON.stringify(newPosts));
-//         } catch (error) {
-//             console.error("Failed to fetch posts:", error);
-//         }
-//     };
-
-//     const onRefresh = useCallback(() => {
-//         setRefreshing(true);
-//         fetchAndCachePosts().finally(() => setRefreshing(false));
-//     }, []);
-
-//     return (
-//         <View style={{ flex: 1 }}>
-//             <FlatList
-//                 data={posts}
-//                 keyExtractor={(item) => item.id.toString()}
-//                 renderItem={({ item }) => <PostCard post={item} />}
-//                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-//             />
-//         </View>
-//     );
-// };
-
-// export default HomeScreen;

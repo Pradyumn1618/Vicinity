@@ -5,6 +5,9 @@ import { getFirestore, collection, addDoc, serverTimestamp } from '@react-native
 import auth from '@react-native-firebase/auth';
 import { geohashForLocation } from 'geofire-common';
 import VenueAutocomplete from './VenueAutoComplete';
+import AddMemberModal from './AddMemberModal';
+
+const db = getFirestore();
 
 interface CreateEventModalProps {
     visible: boolean;
@@ -28,28 +31,47 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
     const [loading, setLoading] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
+    const [showAddMemberModal, setShowAddMemberModal] = useState(false);
     const db = getFirestore();
 
-    const handleAddUserInput = () => {
-        setUserInputs([...userInputs, '']);
+    const handleAddUserInput = (username: string) => {
+        if (username.trim() !== '') {
+            setUserInputs([...userInputs, username]);
+        }
     };
 
-    const handleUserInputChange = (index: number, value: string) => {
-        const updatedInputs = [...userInputs];
-        updatedInputs[index] = value;
-        setUserInputs(updatedInputs);
+    // const handleUserInputChange = (index: number, value: string) => {
+    //     const updatedInputs = [...userInputs];
+    //     updatedInputs[index] = value;
+    //     setUserInputs(updatedInputs);
+    // };
+
+    const handleCancel = () => {
+        setUserInputs(['']);
+        setForm({
+            title: '',
+            description: '',
+            dateTime: new Date(),
+            venue: '',
+            location: { lat: 0, lng: 0 },
+            public: true,
+            allowedUsers: [],
+        });
+        onClose();
     };
 
-    const handlePlaceSelected = (venue: string, location: { lat: number; lng: number }) => {
-        setForm({ ...form, venue, location });
-    };
+    // const handlePlaceSelected = (venue: string, location: { lat: number; lng: number }) => {
+    //     setForm({ ...form, venue, location });
+    // };
 
     const handleCreateEvent = async () => {
         try {
             setLoading(true);
 
             // Generate geohash for the venue location
-            const geohash = geohashForLocation([form.location.lat, form.location.lng]).substring(0, 5);
+            const geohash5 = geohashForLocation([form.location.lat, form.location.lng]).substring(0, 5);
+            const geohash4 = geohash5.substring(0, 4);
+            const geohash3 = geohash5.substring(0, 3);
 
             // Fetch the username from Firestore
             const user = auth().currentUser;
@@ -63,17 +85,15 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
 
             // Convert usernames to user IDs in the backend
             const allowedUsers: string[] = [];
-            for (const username of userInputs) {
-                if (username.trim() !== '') {
-                    const querySnapshot = await getFirestore()
-                        .collection('users')
-                        .where('username', '==', username.trim())
-                        .get();
-                    if (!querySnapshot.empty) {
-                        querySnapshot.forEach(doc => allowedUsers.push(doc.id)); // Add user ID
-                    } else {
-                        Alert.alert('Warning', `User "${username}" not found.`);
-                    }
+            for (const username of userInputs.filter(input => input.trim() !== '')) {
+                const querySnapshot = await getFirestore()
+                    .collection('users')
+                    .where('username', '==', username.trim())
+                    .get();
+                if (!querySnapshot.empty) {
+                    querySnapshot.forEach(doc => allowedUsers.push(doc.id)); // Add user ID
+                } else {
+                    Alert.alert('Warning', `User "${username}" not found.`);
                 }
             }
 
@@ -83,7 +103,7 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                     form.location.lat,
                     form.location.lng
                 ),
-                geohash,
+                geohashes: [geohash5, geohash4, geohash3],
                 createdBy: username,
                 createdAt: serverTimestamp(),
                 allowedUsers: form.public ? [] : allowedUsers,
@@ -112,26 +132,26 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
         }
     };
 
-    const handleDateChange = (event: any, selectedDate?: Date) => {
-        setShowDatePicker(false);
-        if (selectedDate) {
-            setForm({ ...form, dateTime: selectedDate });
-        }
-    };
+    // const handleDateChange = (event: any, selectedDate?: Date) => {
+    //     setShowDatePicker(false);
+    //     if (selectedDate) {
+    //         setForm({ ...form, dateTime: selectedDate });
+    //     }
+    // };
 
-    const handleTimeChange = (event: any, selectedTime?: Date) => {
-        setShowTimePicker(false);
-        if (selectedTime) {
-            const updatedDateTime = new Date(form.dateTime);
-            updatedDateTime.setHours(selectedTime.getHours());
-            updatedDateTime.setMinutes(selectedTime.getMinutes());
-            setForm({ ...form, dateTime: updatedDateTime });
-        }
-    };
+    // const handleTimeChange = (event: any, selectedTime?: Date) => {
+    //     setShowTimePicker(false);
+    //     if (selectedTime) {
+    //         const updatedDateTime = new Date(form.dateTime);
+    //         updatedDateTime.setHours(selectedTime.getHours());
+    //         updatedDateTime.setMinutes(selectedTime.getMinutes());
+    //         setForm({ ...form, dateTime: updatedDateTime });
+    //     }
+    // };
 
-    const togglePublicPrivate = () => {
-        setForm({ ...form, public: !form.public });
-    };
+    // const togglePublicPrivate = () => {
+    //     setForm({ ...form, public: !form.public });
+    // };
 
     return (
         <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -168,7 +188,12 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                                 value={form.dateTime}
                                 mode="date"
                                 display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                onChange={handleDateChange}
+                                onChange={(event, selectedDate) => {
+                                    setShowDatePicker(false);
+                                    if (selectedDate) {
+                                        setForm({ ...form, dateTime: selectedDate });
+                                    }
+                                }}
                             />
                         )}
                     </View>
@@ -183,14 +208,23 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                                 value={form.dateTime}
                                 mode="time"
                                 display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                onChange={handleTimeChange}
+                                onChange={(event, selectedTime) => {
+                                    setShowTimePicker(false);
+                                    if (selectedTime) {
+                                        const updatedDateTime = new Date(form.dateTime);
+                                        updatedDateTime.setHours(selectedTime.getHours());
+                                        updatedDateTime.setMinutes(selectedTime.getMinutes());
+                                        setForm({ ...form, dateTime: updatedDateTime });
+                                    }
+                                }}
                             />
                         )}
                     </View>
 
                     <VenueAutocomplete
                         apiKey={GOOGLE_API_KEY}
-                        onPlaceSelected={handlePlaceSelected}
+                        // onPlaceSelected={handlePlaceSelected}
+                        onPlaceSelected={(venue, location) => setForm({ ...form, venue, location })}
                     />
 
                     {/* Fancy Toggle */}
@@ -200,7 +234,8 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                                 styles.toggleButton,
                                 form.public ? styles.publicActive : styles.inactive,
                             ]}
-                            onPress={togglePublicPrivate}
+                            // onPress={togglePublicPrivate}
+                            onPress={() => setForm({ ...form, public: true })}
                         >
                             <Text style={styles.toggleText}>Public</Text>
                         </TouchableOpacity>
@@ -209,7 +244,8 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                                 styles.toggleButton,
                                 !form.public ? styles.privateActive : styles.inactive,
                             ]}
-                            onPress={togglePublicPrivate}
+                            // onPress={togglePublicPrivate}
+                            onPress={() => setForm({ ...form, public: false })}
                         >
                             <Text style={styles.toggleText}>Private</Text>
                         </TouchableOpacity>
@@ -217,17 +253,21 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
 
                     {!form.public && (
                         <View>
-                            <Text style={styles.title}>Allowed Users</Text>
-                            {userInputs.map((input, index) => (
-                                <TextInput
-                                    key={index}
-                                    placeholder="Enter username"
-                                    value={input}
-                                    onChangeText={text => handleUserInputChange(index, text)}
-                                    style={styles.input}
-                                />
-                            ))}
-                            <Button title="Add More" onPress={handleAddUserInput} />
+                            {userInputs.filter(input => input.trim() !== '').length > 0 && (
+                                <>
+                                    <Text style={styles.title}>Allowed Users</Text>
+                                    {userInputs
+                                        .filter(input => input.trim() !== '') // Filter out empty strings
+                                        .map((input, index) => (
+                                            <View key={index} style={styles.memberCard}>
+                                                <Text style={styles.memberText}>{input}</Text>
+                                            </View>
+                                        ))}
+                                </>
+                            )}
+                            <TouchableOpacity style={styles.addButton} onPress={() => setShowAddMemberModal(true)}>
+                                <Text style={styles.addButtonText}>Add Member</Text>
+                            </TouchableOpacity>
                         </View>
                     )}
 
@@ -235,9 +275,28 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                     <Button title="Create Event" onPress={handleCreateEvent} disabled={loading} />
 
                     {loading && <ActivityIndicator size="large" style={{ marginTop: 16 }} />}
-                    <Button title="Cancel" onPress={onClose} color="red" />
+                    <Button title="Cancel" onPress={handleCancel} color="red" />
                 </View>
             </KeyboardAvoidingView>
+
+            <AddMemberModal
+                visible={showAddMemberModal}
+                onClose={() => setShowAddMemberModal(false)}
+                onAddMember={handleAddUserInput}
+                fetchSuggestions={async (query) => {
+                    try {
+                        const usersCollection = db.collection('users');
+                        const querySnapshot = await usersCollection.get();
+
+                        return querySnapshot.docs
+                            .map(doc => doc.data().username)
+                            .filter(username => username.toLowerCase().startsWith(query.toLowerCase()));
+                    } catch (error) {
+                        console.error('Error fetching suggestions:', error);
+                        return [];
+                    }
+                }}
+            />
         </Modal>
     );
 };
@@ -291,6 +350,29 @@ const styles = StyleSheet.create({
     toggleText: {
         color: 'white',
         fontWeight: 'bold',
+    },
+    addButton: {
+        backgroundColor: '#4caf50', // Green background for the "Add Member" button
+        padding: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+        marginTop: 16,
+        marginBottom: 16,
+    },
+    addButtonText: {
+        color: '#ffffff', // White text for the button
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    memberCard: {
+        backgroundColor: '#1e1e1e',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 8,
+    },
+    memberText: {
+        color: '#ffffff',
+        fontSize: 16,
     },
 });
 

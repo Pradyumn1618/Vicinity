@@ -9,6 +9,7 @@ export const getDBConnection = async () => {
 
 export const createTables = async (db: SQLite.SQLiteDatabase) => {
     // Messages Table
+    try{
     await db.executeSql(`CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY,
   participants TEXT, -- Stored as JSON string
@@ -24,14 +25,11 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
       receiver TEXT,
       text TEXT,
       media TEXT,
-      replyToText TEXT,
       replyToId TEXT,
+      replyToText TEXT,
       timestamp INTEGER,
       delivered INTEGER DEFAULT 0,
       seen INTEGER DEFAULT 0,
-      nonce TEXT,
-      senderPublicKey TEXT,
-      medianonce TEXT,
       FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE  
     );
   `);
@@ -41,13 +39,40 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
     CREATE TABLE IF NOT EXISTS unread_counts (
   chatId TEXT PRIMARY KEY,
   count INTEGER,
-  UnreadTimestamp INTEGER DEFAULT (strftime('%s', 'now')),
+  UnreadTimestamp INTEGER,
   FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE
 );
   `);
 
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS deletedMessages (
+    id TEXT PRIMARY KEY,
+    chatId TEXT,
+    receiver TEXT,
+    FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `
+  );
 
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS deletedGroupMessages (
+    id TEXT PRIMARY KEY,
+    groupId TEXT
+  );
+    `
+  );
 
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS groupUnreadCounts (
+    groupId TEXT PRIMARY KEY,
+    count INTEGER,
+    UnreadTimestamp INTEGER
+  );`
+  );
+}catch(error){
+    console.error("Error creating tables:", error);
+  }
 };
 
 export const closeDB = async (db: SQLite.SQLiteDatabase) => {

@@ -5,28 +5,25 @@ import firestore from '@react-native-firebase/firestore';
 import { AppState } from 'react-native';
 import socket from '../config/socket';
 import { createContext, useContext } from 'react';
-import { insertMessage, incrementUnreadCount, deleteMessage, decrementUnreadCount } from '../helper/databaseHelper';
+import { insertMessage, incrementUnreadCount, deleteMessage, decrementUnreadCount, setSeenMessages, incrementGroupUnreadCount, decrementGroupUnreadCount } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
-import { decryptMessage } from './cryptoUtils';
-import * as Keychain from 'react-native-keychain';
 
 const SocketContext = createContext(socket);
 
-const KEY_SERVICE = 'com.vicinity.privatekeys';
 
 interface Message {
   id: string;
   sender: string;
   text: string;
   media?: string | null;
-  replyTo?: { text: string; id: string } | null;
+  replyTo?: string | null;
   timestamp: number;
   delivered?: boolean;
   seen?: boolean;
 }
 
 export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
-  const { setMessages, currentChatId, setChats } = useChatContext();
+  const { setMessages, currentChatId, setChats, setGroups } = useChatContext();
   const userGeohashRef = useRef<string | null>(null);
   const connectedRef = useRef(false);
 
@@ -54,97 +51,66 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
       });
 
       socket.on('delete-message', async (msg) => {
-        const {messageId,chatId} = msg;
+        const { messageId, chatId } = msg;
         deleteMessage(messageId);
         if (currentChatId === chatId) {
           setMessages((prev: Message[]) => prev.filter((message) => message.id !== messageId));
-        }else{
+        } else {
           decrementUnreadCount(chatId);
+          setChats((prevChats) =>
+            prevChats.map((chat) => {
+              if (chat.id === chatId) {
+                return {
+                  ...chat,
+                  unreadCount: chat.unreadCount ? chat.unreadCount - 1 : 0,
+                };
+              }
+              return chat;
+            })
+          );
         }
 
+      });
+
+      socket.on('seen-messages', async (msg) => {
+        const { chatId, userId: receiver, timestamp } = msg;
+        if (currentChatId === chatId) {
+          setMessages((prev: Message[]) => prev.map((message) => {
+            if (message.sender !== receiver && message.timestamp <= timestamp) {
+              return {
+                ...message,
+                seen: true,
+              };
+            }
+            return message;
+          }));
+        }
+        await setSeenMessages(chatId, receiver, timestamp);
       });
 
       // Remove any existing listener before adding a new one
       socket.off('receive-dm');
 
       socket.on('receive-dm', async (msg) => {
-        const myUid = auth().currentUser?.uid ?? 'unknown_user';
-        let decryptedMessage: Message | null = null;
-        const existingKey = await Keychain.getGenericPassword({ service: KEY_SERVICE });
-        if (!existingKey) {
-          console.warn('Private key not found in Keychain');
-          return;
-        }
-
-        const myPrivateKey = Buffer.from(existingKey.password, 'hex');
-
-        if (msg.text && msg.nonce && msg.senderPubKey) {
-          const senderPubKey = Buffer.from(msg.senderPubKey, 'hex');
-          const nonce = Buffer.from(msg.nonce, 'hex');
-          const ciphertext = Buffer.from(msg.text, 'hex');
-
-          let medianonce = null;
-          let decryptedMedia = null;
-          if (msg.media && msg.medianonce) {
-            medianonce = Buffer.from(msg.medianonce, 'hex');
-            const mediaBuffer = Buffer.from(msg.media, 'hex');
-            decryptedMedia = decryptMessage(
-              mediaBuffer.toString('hex'),
-              medianonce.toString('hex'),
-              myPrivateKey.toString('hex'),
-              senderPubKey.toString('hex')
-            );
-          }
-
-          const decryptedText = decryptMessage(
-            ciphertext.toString('hex'),
-            nonce.toString('hex'),
-            myPrivateKey.toString('hex'),
-            senderPubKey.toString('hex')
-          );
-
-          decryptedMessage = {
-            id: msg.id,
-            sender: msg.sender,
-            text: decryptedText,
-            media: decryptedMedia || null,
-            replyTo: msg.replyTo || null,
-            timestamp: typeof msg.timestamp === 'number'
-              ? msg.timestamp
-              : msg.timestamp?.toDate?.().getTime?.() || Date.now(),
-            delivered: true,
-            seen: msg.seen || false,
-          };
-        } else {
-          decryptedMessage = {
-            id: msg.id,
-            sender: msg.sender,
-            text: msg.text,
-            media: null,
-            replyTo: msg.replyTo || null,
-            timestamp: typeof msg.timestamp === 'number'
-              ? msg.timestamp
-              : msg.timestamp?.toDate?.().getTime?.() || Date.now(),
-            delivered: true,
-            seen: msg.seen || false,
-          }
-        }
-
+        if (!msg) return;
         // Store encrypted message locally
-        if (decryptedMessage) {
-          insertMessage(decryptedMessage, msg.chatId, myUid);
-        } else {
-          console.warn('Decrypted message is null, skipping insertion');
-        }
+        const myUid = auth().currentUser?.uid;
+        if (!myUid) return;
+        insertMessage(msg, msg.chatId, myUid);
 
         if (currentChatId === msg.chatId) {
+          msg.seen = true;
+          console.log('Received message:', msg);
+          setMessages((prev: Message[]) => [msg,...prev]);
+          socket.emit('seen-messages', {
+            chatId: msg.chatId,
+            receiver: msg.sender,
+            timestamp: msg.timestamp,
+            userId: myUid,
+          });
 
-          if (decryptedMessage) {
-            decryptedMessage.seen = true;
-            setMessages((prev: Message[]) => [...prev, decryptedMessage]);
-          }
         } else {
-          console.warn('Missing fields for decryption');
+          console.log('Received message in background');
 
           await incrementUnreadCount(msg.chatId);
           setChats((prevChats) =>
@@ -161,11 +127,61 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         }
       });
 
+      socket.on('receive-group-message', async (msg) => {
+        if (!msg) return;
+        // Store encrypted message locally
+    
+        // insertMessage(msg, msg.groupId, myUid);
+
+        if (currentChatId === msg.groupId) {
+          msg.seen = true;
+          console.log('Received group message:', msg);
+          setMessages((prev: Message[]) => [msg,...prev]);
+        } else {
+          console.log('Received group message in background');
+
+          await incrementGroupUnreadCount(msg.groupId);
+          setGroups((prevChats) =>
+            prevChats.map((chat) => {
+              if (chat.id === msg.groupId) {
+                return {
+                  ...chat,
+                  unreadCount: (chat.unreadCount || 0) + 1,
+                };
+              }
+              return chat;
+            })
+          );
+        }
+      });
+
+      socket.on('delete-group-message', async (msg) => {
+        const { messageId, groupId } = msg;
+        // deleteMessage(messageId);
+        if (currentChatId === groupId) {
+          setMessages((prev: Message[]) => prev.filter((message) => message.id !== messageId));
+        } else {
+          decrementGroupUnreadCount(groupId);
+          setGroups((prevChats) =>
+            prevChats.map((chat) => {
+              if (chat.id === groupId) {
+                return {
+                  ...chat,
+                  unreadCount: chat.unreadCount ? chat.unreadCount - 1 : 0,
+                };
+              }
+              return chat;
+            })
+          );
+        }
+
+      });
+
 
     } catch (err) {
       console.error('🔥 Error connecting with geohash:', err);
     }
-  }, [currentChatId, setMessages, setChats]);
+  }, [currentChatId, setMessages, setChats, setGroups]);
 
   useEffect(() => {
     const handleAuthChange = (user: any) => {

@@ -4,5 +4,7 @@
     // other options
     "jsx": "react",
     "esModuleInterop": true,
+    "strict": false,
+    "skipLibCheck": true,
   }
 }

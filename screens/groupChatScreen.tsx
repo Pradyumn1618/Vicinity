@@ -1,81 +1,149 @@
-import React, { useState, useRef, useEffect, useMemo, useLayoutEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet, Image, ActivityIndicator, ToastAndroid, PermissionsAndroid } from 'react-native';
-import { launchImageLibrary } from 'react-native-image-picker';
+import React, { useEffect, useState, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  Image,
+  StyleSheet,
+  PermissionsAndroid,
+  ToastAndroid,
+  Alert,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
 import { getAuth } from '@react-native-firebase/auth';
-import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc } from '@react-native-firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL, FirebaseStorageTypes } from '@react-native-firebase/storage';
-import Ionicons from 'react-native-vector-icons/Ionicons';
-// import socket from '../config/socket';
-import Video from 'react-native-video'; // For video rendering
-import FastImage from 'react-native-fast-image'; // For better image and GIF support
+import Clipboard from '@react-native-clipboard/clipboard';
 
-import { RouteProp } from '@react-navigation/native';
-import { Modal } from 'react-native';
-import { sendDeleteNotification, sendDMNotification } from '../helper/sendNotification';
-import useReceiverStatus from '../helper/receiverStatus';
-import { useSocket } from '../helper/socketProvider';
-import { useChatContext } from '../context/chatContext';
-import NetInfo from '@react-native-community/netinfo';
-import { nanoid } from 'nanoid';
-import moment from 'moment';
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  onSnapshot,
+  collection,
+  query,
+  orderBy,
+  setDoc,
+  deleteDoc,
+  endBefore,
+  limit,
+  getDocs,
+  startAt,
+  startAfter,
+  endAt,
+} from '@react-native-firebase/firestore';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { v4 as uuidv4 } from 'uuid';
 import RNFS from 'react-native-fs';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
-import Clipboard from '@react-native-clipboard/clipboard';
-import ImageViewing from "react-native-image-viewing";
-
-
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB, CheckAndLoadMessage, getMessageById } from '../helper/databaseHelper';
+import { deleteObject, getDownloadURL, getStorage, ref, uploadBytesResumable } from '@react-native-firebase/storage';
+import moment from 'moment';
+import { nanoid } from 'nanoid';
+import { CheckAndLoadGroupMessage, getGroupUnreadTimestamp, insertIntoDeletedGroupMessages, insertIntoDeletedMessages, resetUnreadCount, setGroupUnreadTimestamp } from '../helper/databaseHelper';
+import { useChatContext } from '../context/chatContext';
+import { send } from 'process';
+import { sendGroupNotification } from '../helper/sendNotification';
+import { launchImageLibrary } from 'react-native-image-picker';
+import NetInfo from '@react-native-community/netinfo';
+import { useSocket } from '../helper/socketProvider';
+import Video from 'react-native-video';
+import FastImage from 'react-native-fast-image';
 import { DownloadHeader } from '../components/downLoad';
-import RenderMessage from '../components/renderMessage';
+import RenderGroupMessage from '../components/renderGrpMessage';
+import ImageViewing from 'react-native-image-viewing';
 
+interface Message {
+  id: string;
+  text: string;
+  sender: string;
+  senderName: string;
+  timestamp: number;
+  media?: string | null;
+  replyTo?: { senderName: string, text: string, id: string } | null;
+}
 
-
-type ChatScreenRouteProp = RouteProp<{ ChatScreen: { chatId: string; receiver: string } }, 'ChatScreen'>;
-
-export default function ChatScreen({ route, navigation }: { route: ChatScreenRouteProp, navigation: any }) {
-  const { chatId, receiver } = route.params;
-  const socket = useSocket();
-  interface Message {
-    id: string;
-    text: string;
-    sender: string;
-    timestamp: number;
-    media?: string | null;
-    replyTo?: {text: string,id:string} | null;
-    delivered?: boolean;
-    seen?: boolean;
-  }
-
-  const { messages, setMessages } = useChatContext();
-  const { setCurrentChatId } = useChatContext();
-
-
-
+const GroupChatScreen = ({ route, navigation }) => {
+  const { groupId } = route.params;
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  const [replyTo, setReplyTo] = useState<{text:string,id:string} | null>(null);
-  // const [media, setMedia] = useState<string | null>(null);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-  const flatListRef = useRef<FlatList<any>>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedMedia, setSelectedMedia] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [attachedMedia, setAttachedMedia] = useState<{ uri: string, filename: string, type: string } | null>(null);
+  const [groupDetails, setGroupDetails] = useState<any>(null);
+  const flatListRef = useRef<FlatList>(null);
+  const [currentUserDetails, setCurrentUser] = useState<any>(null);
   const [pressedFileExt, setPressedFileExt] = useState<string | null>(null);
-  const [receiverDetails, setReceiverDetails] = useState<any>(null);
-  const [unreadTimestamp, setUnreadTimestamp] = useState<number | null>(null);
-  const [unreadIndex, setUnreadIndex] = useState<number | null>(null);
-  const receiverDetailsRef = useRef(receiverDetails);
-  const uploadTaskRef = useRef<FirebaseStorageTypes.Task | null>(null);
-  const [showDivider, setShowDivider] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [typing, setTyping] = useState(false);
-  const timestampToshowDivider = useRef<number | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<string | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
   const [searchText, setSearchText] = useState('');
-  // const [showDatePicker, setShowDatePicker] = useState(false);
-  // const [selectedDate, setSelectedDate] = useState(undefined);
-  const [isSearching, setIsSearching] = useState(false);
   const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
+  const [currentUser, setCurrentUserId] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const { setCurrentChatId } = useChatContext();
+  const [typingStatus, setTypingStatus] = useState('');
+  const typerList = useRef<string[]>([]);
+  const socket = useSocket();
+  const [unreadTimestamp,setUnreadTimestamp] = useState<number>(0);
+  const hasScrolledToUnread = useRef(false);
+  const [endTimestamp, setEndTimestamp] = useState<number>(0);
+
+
+  useEffect(() => {
+    const handleGroupTyping = (data) => {
+      if (data.groupId === groupId) {
+        if (!typerList.current.includes(data.typer)) {
+          typerList.current.push(data.typer);
+        }
+        if (typerList.current.length == 1) {
+          setTypingStatus(`${typerList.current[0]} is typing...`);
+        } else if (typerList.current.length == 2) {
+          setTypingStatus(`${typerList.current[0]} and ${typerList.current[1]} are typing...`);
+        }
+        else {
+          setTypingStatus(`${typerList.current[0]} and ${typerList.current.length - 1} others are typing...`);
+        }
+      }
+    };
+
+    socket.on('group-typing', handleGroupTyping);
+    socket.on('group-typing-stopped', (data) => {
+      if (data.groupId === groupId) {
+        const index = typerList.current.indexOf(data.typer);
+        if (index !== -1) {
+          typerList.current.splice(index, 1);
+        }
+        if (typerList.current.length === 0) {
+          setTypingStatus('');
+        } else if (typerList.current.length == 1) {
+          setTypingStatus(`${typerList.current[0]} is typing...`);
+        } else if (typerList.current.length == 2) {
+          setTypingStatus(`${typerList.current[0]} and ${typerList.current[1]} are typing...`);
+        }
+        else {
+          setTypingStatus(`${typerList.current[0]} and ${typerList.current.length - 1} others are typing...`);
+        }
+      }
+    });
+
+    return () => {
+      socket.off('group-typing', handleGroupTyping);
+      socket.off('group-typing-stopped');
+    };
+  }, [socket, groupId]);
+
+  useLayoutEffect(()=> {
+    const getUnreadTimestamp = async () => {
+      const timestamp = await getGroupUnreadTimestamp(groupId);
+      if (timestamp) {
+        setUnreadTimestamp(timestamp);
+      } else {
+        setUnreadTimestamp(0);
+      }
+      setUnreadTimestamp(timestamp);
+    };
+    getUnreadTimestamp();
+  },[groupId]);
+
 
 
   async function hasAndroidPermission() {
@@ -161,12 +229,15 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         return messages;
       }
       const lowerCaseSearchText = searchText.toLowerCase();
-      const result = await filterMessagesDB(lowerCaseSearchText, chatId);
+      const result = messages.filter((message) => {
+        const messageText = message.text.toLowerCase();
+        return messageText.includes(lowerCaseSearchText);
+      });
       console.log('Filtered messages:', result);
       setFilteredMessages(result);
     }
     filterMessages();
-  }, [chatId, messages, searchText, setFilteredMessages]);
+  }, [messages, searchText, setFilteredMessages]);
 
 
   const handleMediaPress = (uri: string) => {
@@ -184,92 +255,119 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   const storage = getStorage();
 
   useEffect(() => {
-    socket.on('typing', (data: { chatId: string }) => {
-      if (data.chatId === chatId) {
-        setTyping(true);
+    const getUserDetails = async () => {
+      if (!currentUserId) {
+        console.error('currentUserId is undefined');
+        return;
+      }
+      const userRef = doc(db, 'users', currentUserId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists) {
+        const userData = userSnap.data();
+        // console.log('User data:', userData);
+        setCurrentUser({
+          id: currentUserId,
+          username: userData?.username,
+          photoURL: userData?.profilePic,
+        });
+      }
+    };
+    getUserDetails();
+  }, [currentUserId, db]);
+
+  useEffect(() => {
+    const groupRef = doc(db, 'groups', groupId);
+    const unsubscribe = onSnapshot(groupRef, (docSnap) => {
+      if (docSnap.exists) {
+        setGroupDetails(docSnap.data());
       }
     });
 
-    socket.on('StoppedTyping', (data: { chatId: string; }) => {
-      if (data.chatId === chatId) {
-        setTyping(false);
-      }
-    });
-    return () => {
-      socket.off('typing');
-      socket.off('StoppedTyping');
-    }
-  }, [chatId, receiver, socket])
+    return () => unsubscribe();
+  }, [groupId, db]);
 
   useEffect(() => {
-    socket.emit('get_status', { userId: receiver });
-    socket.on('status_response', (data: { status: string; lastSeen: string }) => {
-      const formattedLastSeen = data.lastSeen
-        ? new Date(data.lastSeen).toLocaleString()
-        : null;
-
-      setReceiverDetails((prevDetails: any) => ({
-        ...prevDetails,
-        ...(data.status === 'online'
-          ? { status: data.status, lastSeen: null }
-          : { lastSeen: formattedLastSeen, status: null }),
-      }));
-    }
-    );
-    return () => {
-      socket.off('status_response');
-    };
-  }, [socket, receiver]);
-
-  useEffect(() => {
-    const getReceiverDetails = async () => {
-      console.log('getting receiver details')
-      const details = await getReceiver(chatId);
-      console.log('details', details);
-      if (!details) return;
-      setReceiverDetails((prev: any) => ({
-        ...prev,
-        username: details.username,
-        photoURL: details.photoURL,
-      }));
-    };
-    getReceiverDetails();
-  }, [chatId]);
-
-
-  useReceiverStatus(receiver, setReceiverDetails);
-  useLayoutEffect(() => {
-
-    const fetchunreadTimestamp = async () => {
-      const timestamp = await getUnreadTimestamp(chatId);
-      timestampToshowDivider.current = timestamp;
-      if (timestamp) {
-        setUnreadTimestamp(timestamp);
-      }
-    };
-
-    const fetchReceiverDetails = async () => {
-      if (!receiver) return;
-
+    if (!groupId || unreadTimestamp == null) return;
+    console.log('here');
+  
+    const fetchMessagesAroundUnread = async () => {
+      setLoadingMore(true);
       try {
-        const userRef = doc(db, 'users', receiver);
-        const userDoc = await getDoc(userRef);
-
-
-        if (userDoc.exists) {
-          setReceiverDetails((prev: any) => ({
-            ...prev,
-            ...userDoc.data(),
-          }));
-        }
-        receiverDetailsRef.current = userDoc.data();
-      } catch (error) {
-        console.error('Failed to fetch receiver details:', error);
+        const messagesRef = collection(db, 'groups', groupId, 'messages');
+  
+        // Query 1: Fetch 20 messages BEFORE unreadTimestamp
+        const beforeQ = query(
+          messagesRef,
+          orderBy('timestamp', 'desc'),
+          startAfter(unreadTimestamp),
+          limit(50)
+        );
+        const beforeSnap = await getDocs(beforeQ);
+        const beforeMessages = beforeSnap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as Message))
+        
+      setEndTimestamp(beforeMessages[beforeMessages.length - 1]?.timestamp);
+  
+        // Query 2: Fetch ALL messages AFTER (or from) unreadTimestamp
+        const afterQ = query(
+          messagesRef,
+          orderBy('timestamp', 'desc'),
+          endAt(unreadTimestamp)
+        );
+        const afterSnap = await getDocs(afterQ);
+        const afterMessages = afterSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+  
+        // Combine and set
+        const combined = [...afterMessages,...beforeMessages];
+        setMessages(combined);
+  
+        // Optional: Update unread timestamp cache
+        setGroupUnreadTimestamp(groupId, afterMessages[0]?.timestamp);
+        console.log('messages',combined);
+  
+      } catch (err) {
+        console.error('Error fetching messages:', err);
+      }finally {
+        setLoadingMore(false);
       }
     };
-    fetchReceiverDetails();
-    fetchunreadTimestamp();
-  }, [receiver, db, chatId]);
+  
+    fetchMessagesAroundUnread();
+  }, [groupId, unreadTimestamp, db]);
+
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const onEndReached = async () => {
+    if (!decoratedMessages || decoratedMessages.length === 0) return;
+    if(loadingMore || !hasMore) return;
+    if (!endTimestamp) return;
+    setLoadingMore(true);
+    try {
+      const messagesRef = collection(db, 'groups', groupId, 'messages');
+      const q = query(
+        messagesRef,
+        orderBy('timestamp', 'desc'),
+        startAfter(messages[messages.length - 1].timestamp),
+        limit(100)
+      );
+      const snapshot = await getDocs(q);
+      const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+      console.log('endTimestamp',endTimestamp);
+      console.log('fetchedNewMessages',newMessages);
+      if (newMessages.length > 0) {
+        setEndTimestamp(newMessages[newMessages.length - 1]?.timestamp);
+        setMessages(prevMessages => [...prevMessages, ...newMessages]);
+      }
+      if (newMessages.length < 100) {
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error('Error loading more messages:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   type DividerItem = {
     type: 'divider';
@@ -300,271 +398,48 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     return formatted.reverse();
   }, []);
 
-
-
-
-
   const decoratedMessages = useMemo(() => {
     return searchText.trim() === '' ? formatMessagesWithDateDividers(messages) : formatMessagesWithDateDividers(filteredMessages);
   }, [messages, formatMessagesWithDateDividers, searchText, filteredMessages]);
 
-
-  useEffect(() => {
-    if (timestampToshowDivider.current && decoratedMessages.length > 0) {
-      const index = decoratedMessages.findIndex(msg => msg.type === 'message' && msg.timestamp > timestampToshowDivider.current && msg.sender === receiver);
-      if (index !== -1) {
-        setUnreadIndex(index);
-        setShowDivider(true);
-      }
+  const initialUnreadIndex = useMemo(() => {
+    if (hasScrolledToUnread.current) return 0;
+  
+    const index = decoratedMessages.findIndex(
+      (msg) => msg.type === 'message' && msg.timestamp >= unreadTimestamp
+    );
+  
+    if (index !== -1) {
+      hasScrolledToUnread.current = true;
+      return index;
     }
-  }, [decoratedMessages, receiver]);
+  
+    return 0;
+  }, [decoratedMessages, unreadTimestamp]);
 
-  useEffect(() => {
-    if (unreadIndex !== null && flatListRef.current) {
-      flatListRef.current.scrollToIndex({
-        index: unreadIndex,
-        viewPosition: 0.5, // centers it
-        animated: true,
-      });
-    }
-  }, [unreadIndex]);
+
+  // useEffect(() => {
+  //   if (unreadIndex !== null && flatListRef.current) {
+  //     flatListRef.current.scrollToIndex({
+  //       index: unreadIndex,
+  //       viewPosition: 0.5, // centers it
+  //       animated: true,
+  //     });
+  //   }
+  // }, [unreadIndex]);
 
 
   useLayoutEffect(() => {
-    setCurrentChatId(chatId);
-    resetUnreadCount(chatId);
+    setCurrentChatId(groupId);
+    resetUnreadCount(groupId);
     // resetUnreadTimestamp(chatId);
-  }, [chatId, setCurrentChatId, receiver]);
+  }, [groupId, setCurrentChatId]);
 
-
-  const [lastTimestamp, setLastTimestamp] = useState<number | null>(null);
-  // const [newestTimestamp, setNewestTimestamp] = useState<number | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-
-  const MESSAGES_PAGE_SIZE = 40;
-
-  useEffect(() => {
-    const updateSeenMessages = async () => {
-      const lastSeenTimestamp = await getUnreadTimestamp(chatId);
-      console.log(lastSeenTimestamp);
-      if (lastSeenTimestamp !== null && currentUserId) {
-        await setSeenMessages(chatId, currentUserId, lastSeenTimestamp);
-
-      }
-      socket.emit('seen-messages', {
-        chatId: chatId,
-        receiver: receiver,
-        timestamp: Date.now(),
-        userId: currentUserId,
-      });
-    };
-    updateSeenMessages();
-    resetUnreadTimestamp(chatId);
-    return () => {
-      socket.off('seen-messages');
-    };
-  }, [chatId, currentUserId, receiver, socket]);
-
-  const syncMessages = useCallback(async (fetchedMessages: Message[], beforeTimestamp: number) => {
-    // Step 1: Insert all fetched messages
-    for (const message of fetchedMessages) {
-      await insertMessage(message, chatId, receiver); // assume this already exists
-    }
-
-    // Step 2: Get local messages before timestamp
-    const localMessages = await getLocalMessages(chatId, beforeTimestamp, 20);
-    const localMessageIds = localMessages.map(msg => msg.messageId);
-
-    // Step 3: Compare with server messages and delete extra local ones
-    const serverMessageIds = fetchedMessages.map(msg => msg.id);
-    const extraLocalIds = localMessageIds.filter(id => !serverMessageIds.includes(id));
-
-    // Step 4: Delete extra local messages
-    for (const id of extraLocalIds) {
-      await deleteMessage(id);
-    }
-  }, [chatId, receiver]);
-
-
-  useEffect(() => {
-    async function fetchMessages(chatId: string, lastTimestamp: number = 0) {
-      try {
-        const auth = getAuth();
-        const currentUser = auth.currentUser;
-        if (!currentUser) throw new Error("User not authenticated");
-
-        const idToken = await currentUser.getIdToken();
-
-        const url = new URL("https://vicinity-backend.onrender.com/messages/sync");
-        url.searchParams.append("chatId", chatId);
-        url.searchParams.append("after", String(lastTimestamp || 0));
-
-        console.log("Fetching messages from URL:", url.toString());
-
-        const response = await fetch(url.toString(), {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${idToken}`,
-            "Content-Type": "application/json",
-          },
-        });
-        // console.log("Response:", response);
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(`Error ${response.status}: ${error.error}`);
-        }
-
-        const data = await response.json();
-        console.log("response", data);
-        return data.messages;
-      } catch (err) {
-        console.error("Failed to fetch messages:", err.message);
-        return [];
-      }
-    }
-
-    const syncMissedMessages = async () => {
-      try {
-        const newMessages = await fetchMessages(chatId, lastTimestamp || 0);
-
-        for (const msg of newMessages) {
-          await insertMessage(msg, chatId, receiver);
-        }
-
-        setMessages(() => {
-          return newMessages.sort((a: Message, b: Message) => b.timestamp - a.timestamp);
-        });
-      } catch (err) {
-        console.error('Failed to sync missed messages:', err);
-      }
-    };
-    const cachedMessages = getMessages(chatId, MESSAGES_PAGE_SIZE);
-
-    if (lastTimestamp !== null) {
-      const checkNetworkAndSync = async () => {
-        const netInfo = await NetInfo.fetch();
-        if (netInfo.isConnected) {
-          syncMissedMessages();
-          const resolvedCachedMessages = await cachedMessages;
-          syncMessages(resolvedCachedMessages, Date.now());
-        }
-      };
-      checkNetworkAndSync();
-    }
-  }, [chatId, lastTimestamp, receiver, setMessages, syncMessages])
-
-
-  useEffect(() => {
-    const fetchInitialCachedMessages = async () => {
-      setLoadingMore(true);
-      const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE);
-      console.log('Fetched initial cached messages:', cachedMessages);
-
-      if (cachedMessages && cachedMessages.length > 0) {
-        setMessages(cachedMessages);
-        setLastTimestamp(cachedMessages[cachedMessages.length - 1].timestamp);
-        if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
-          setHasMore(false);
-
-        }
-        setOffset(cachedMessages.length);
-      } else {
-        setLastTimestamp(0);
-      }
-      setLoadingMore(false);
-    };
-
-    fetchInitialCachedMessages();
-  }, [chatId, setMessages]); // Only run when chatId changes
-
-
-
-
-  const loadMessages = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      const netInfo = await NetInfo.fetch();
-      const isOffline = !netInfo.isConnected;
-
-      if (isOffline) {
-        console.log("Offline mode - loading older messages from local DB");
-
-        const cachedMessages = await getMessages(chatId, MESSAGES_PAGE_SIZE, offset);
-        if (cachedMessages.length > 0) {
-          setOffset((prevOffset) => prevOffset + cachedMessages.length);
-          setMessages((prev) => {
-            const combined = [...cachedMessages, ...prev];
-            return combined.sort((a, b) => b.timestamp - a.timestamp);
-          });
-        }
-
-        if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
-          setHasMore(false);
-        }
-        setLoadingMore(false);
-
-        return;
-      }
-
-      // No more cached — fetch from Firestore
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error("User not authenticated");
-
-      const idToken = await currentUser.getIdToken(); // Get the Firebase ID token
-      // console.log(chatId, lastTimestamp);
-
-      const url = new URL('https://vicinity-backend.onrender.com/messages/sync');
-      url.searchParams.append('chatId', chatId);
-      url.searchParams.append('limit', '40');
-      url.searchParams.append('before', String(messages[messages.length - 1].timestamp || 0));
-      console.log('fetching before',messages[messages.length-1].timestamp);
-
-      console.log('Fetching messages from URL:', url.toString());
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${idToken}`, // Add Bearer token for authentication
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        console.log(error);
-        throw new Error(`Error ${response.status}: ${error.error}`);
-      }
-      const data = await response.json();
-      const fetchedMessages: Message[] = data.messages;
-
-      if (fetchedMessages.length < MESSAGES_PAGE_SIZE) {
-        setHasMore(false);
-      }
-      if (fetchedMessages.length > 0) {
-
-        setMessages((prevMessages) => {
-          const combined = [...fetchedMessages, ...prevMessages];
-          return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
-        });
-        syncMessages(fetchedMessages, lastTimestamp || 0);
-        setLastTimestamp(fetchedMessages[fetchedMessages.length - 1].timestamp);
-      }
-    } catch (err) {
-      console.error('Error loading older messages:', err);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages, syncMessages,messages]);
-
-  const onEndReached = () => {
-    if (messages.length >= 40) {
-      loadMessages();
-    }
-  };
-  //let the error be here
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [attachedMedia, setAttachedMedia] = useState<{ uri: string; filename: string; type: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ senderName: string, text: string, id: string } | null>(null);
+  const uploadTaskRef = useRef<any>(null);
 
   const uploadMedia = async (attachedMedia: { uri: string; filename: string; type: string }) => {
     try {
@@ -572,7 +447,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       const response = await fetch(attachedMedia.uri);
       const blob = await response.blob();
 
-      const storageRef = ref(storage, `chats/${chatId}/${attachedMedia.filename}`);
+      const storageRef = ref(storage, `chats/${groupId}/${attachedMedia.filename}`);
       const uploadTask = uploadBytesResumable(storageRef, blob);
       uploadTaskRef.current = uploadTask;
 
@@ -631,105 +506,89 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       } catch (error) {
         if (error.message === 'Upload canceled') {
           console.log('Upload was canceled, not sending media.');
+          ToastAndroid.show('Upload was canceled', ToastAndroid.SHORT);
           return; // Exit the function if the upload was canceled
         }
         console.error('Upload failed:', error);
-        Alert.alert('Upload failed', 'Please try again.');
+        ToastAndroid.show('Upload failed', ToastAndroid.SHORT);
         return;
       }
     }
-    const messageId = chatId + `${Date.now()}_${nanoid(6)}`;
+    const messageId = groupId + `${Date.now()}_${nanoid(6)}`;
 
     const messageToDisplay = {
       id: messageId,
       text: inputText,
       sender: currentUserId,
+      senderName: currentUserDetails?.username,
       timestamp: Date.now(),
       media: media || null,
+      groupId: groupId,
       replyTo: replyTo || null,
       delivered: false,
-      seen: false,
     };
-    setShowDivider(false);
+    // setShowDivider(false);
     setMessages(prevMessages => [messageToDisplay, ...prevMessages]);
-    insertMessage(messageToDisplay, chatId, receiver);
+    // insertMessage(messageToDisplay, chatId, receiver);
     const inptext = inputText;
     const reply = replyTo;
     setInputText('');
     setReplyTo(null);
-    let nmessage = { ...messageToDisplay, chatId: chatId, receiver: receiver };
+    let nmessage = { ...messageToDisplay, chatId: groupId };
     let NotiMessage = nmessage;
     if (!messageToDisplay.text) {
       NotiMessage = { ...nmessage, text: 'media' };
     }
-    sendDMNotification([receiverDetails?.fcmToken], NotiMessage);
-    socket.emit('send-dm', { message: nmessage });
+    socket.emit('group-message', { message: messageToDisplay });
     console.log('media:', media);
 
 
-
-    const newMessage = {
-      id: messageId, // unique id for the message
-      sender: currentUserId,
-      receiver: receiver,
-      timestamp: Date.now(),
-      replyTo: reply || null,
-      delivered: false,
-      seen: false,
-    };
     try {
 
       // Add the message to Firestore
-      const chatsRef = collection(db, 'chats');
-      const chatDocRef = doc(chatsRef, chatId);
-      const chatDoc = await getDoc(chatDocRef); // Check if the document exists
-      if (!chatDoc.exists) {
-        await setDoc(chatDocRef, {
-          participants: [currentUserId, receiver],
-        }, { merge: true });
+      const chatsRef = collection(db, 'groups', groupId, 'messages');
+      const messageRef = doc(chatsRef, messageId);
+      console.log('message',messageToDisplay);
+      await setDoc(messageRef, {...messageToDisplay,delivered: true});
+      setMessages((prevMessages) =>{
+        console.log('prevMessages',prevMessages);
+        
+          const updated = prevMessages.map((message) => {
+            if (message.id === messageId) {
+              console.log('Matched message:', message);
+              return { ...message, delivered: true };
+            }
+            return message;
+          })
+          console.log('updated',updated);
+          return updated;
+      
       }
-      const messagesRef = doc(db, 'chats', chatId, 'messages', messageId);
-      await setDoc(messagesRef, {
-        ...newMessage,
-      });
+      );
+      setReplyTo(null);
+      // setMedia(null); // Clear media after sending
+      setUploadProgress(0);
+      flatListRef.current?.scrollToOffset({ animated: true, offset: 0 });
+      // setShowDivider(false);
+      try {
+        if (reply) {
+          sendGroupNotification(groupId, NotiMessage, currentUserId, reply.id);
+        } else {
+          sendGroupNotification(groupId, NotiMessage, currentUserId);
 
-      const userToken = await auth.currentUser?.getIdToken();
-      const response = await fetch("https://vicinity-backend.onrender.com/message", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${userToken}`, // Firebase ID token
-        },
-        body: JSON.stringify({
-          chatId,
-          text: inptext,
-          media,
-          messageId,
-        }),
-      });
-
-      console.log(response);
-
+        }
+      } catch (error) {
+        console.error('Error sending group notification:', error);
+      }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error sending message:', error.message);
+
     }
-    setMessages((prevMessages) =>
-      prevMessages.map((message) =>
-        message.id === messageId ? { ...message, delivered: true } : message
-      )
-    );
-    messageToDisplay.delivered = true;
-    insertMessage(messageToDisplay, chatId, receiver);
-    setReplyTo(null);
-    // setMedia(null); // Clear media after sending
-    setUploadProgress(0);
-    setShowDivider(false);
-    flatListRef.current?.scrollToOffset({ animated: true, offset: 0 });
 
   };
 
   const handleAttachMedia = async () => {
-    setShowDivider(false);
+    // setShowDivider(false);
     try {
       const result = await launchImageLibrary({
         mediaType: 'mixed', // Supports both images and videos
@@ -752,22 +611,10 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   };
 
   const handleReply = (message: Message) => {
-    setReplyTo({
-      text: message.text,
-      id: message.id,
-    });
+    setReplyTo({ senderName: message.senderName, text: message.text, id: message.id });
     inputRef.current?.focus();
   };
 
-
-
-  // const messageIdToIndexMap = useMemo(() => {
-  //   const map: { [key: string]: number } = {};
-  //   decoratedMessages.forEach((msg, idx) => {
-  //     map[msg.id] = idx;
-  //   });
-  //   return map;
-  // }, [decoratedMessages]);
 
   const handleDelete = (messageId: string): void => {
     Alert.alert(
@@ -776,7 +623,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       [
         {
           text: "Cancel",
-          style: "cancel"
+          style: "cancel",
         },
         {
           text: "Delete",
@@ -789,24 +636,29 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
   };
 
+  function extractStoragePathFromUrl(url) {
+    const match = decodeURIComponent(url).match(/\/o\/(.+?)\?/);
+    return match ? match[1] : null;
+  }
+
   const confirmDelete = async (messageId: string): Promise<void> => {
     const netInfo = await NetInfo.fetch();
     const isOffline = !netInfo.isConnected;
     if (isOffline) {
       setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
-      await deleteMessage(messageId);
-      await insertIntoDeletedMessages(messageId, chatId, receiver);
+      // await deleteMessage(messageId);
+      await insertIntoDeletedGroupMessages(messageId, groupId);
       return;
     }
     try {
       // Remove the message from the local state
       setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
 
-      await deleteMessage(messageId);
-      socket.emit('message-deleted', { messageId: messageId, chatId: chatId, receiver: receiver });
+      // await deleteMessage(messageId);
+      socket.emit('group-message-deleted', { messageId: messageId, groupId: groupId });
 
       // Reference to the message in Firestore
-      const messageRef = doc(db, 'chats', chatId, 'messages', messageId);
+      const messageRef = doc(db, 'groups', groupId, 'messages', messageId);
       const messageDoc = await getDoc(messageRef);
 
       if (messageDoc.exists) {
@@ -815,24 +667,12 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
         // Check if the message has media
         if (messageData?.media) {
-          const userToken = await auth.currentUser?.getIdToken();
-
-          try {
-            await fetch("https://vicinity-backend.onrender.com/delete-media", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${userToken}`, // Firebase ID token
-              },
-              body: JSON.stringify({
-                media: messageData.media,
-                messageId: messageId,
-              }),
-            });
-          } catch (error) {
-            console.error('Error deleting media:', error);
-          }
-
+          const path = extractStoragePathFromUrl(messageData.media);
+          console.log('path:', path);
+          const mediaRef = ref(storage, path);
+          // Delete the media from Firebase Storage
+          await deleteObject(mediaRef);
+          console.log('Media deleted successfully from Firebase Storage');
         }
 
         // Delete the message from Firestore
@@ -841,28 +681,12 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       } else {
         console.error('Message does not exist in Firestore');
       }
-      setShowDivider(false);
-      sendDeleteNotification([receiverDetails?.fcmToken], messageId);
+      // setShowDivider(false);
+      // sendDeleteNotification([receiverDetails?.fcmToken], messageId);
     } catch (error) {
       console.error('Error deleting message or media:', error);
     }
   };
-
-  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
-
-  const handleTyping = (text: string) => {
-    if (text.trim()) {
-      socket.emit('typing', { chatId: chatId, receiver: receiver });
-
-    }
-
-    if (typingTimeout.current) clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(() => {
-      socket.emit('StoppedTyping', { chatId: chatId, receiver: receiver });
-    }, 2000);
-
-  }
-
 
   const renderMedia = (media: string, onPress?: () => void) => {
     const cleanUrl = media.split('?')[0].toLowerCase();
@@ -903,9 +727,24 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     );
   };
 
+  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  const handleTyping = (text: string) => {
+    if (text.trim()) {
+      socket.emit('group-typing', { groupId: groupId, typer: currentUserDetails?.username });
+
+    }
+
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(() => {
+      socket.emit('group-typing-stopped', { groupId: groupId, typer: currentUserDetails?.username });
+    }, 2000);
+
+  }
+
 
   const inputRef = useRef<TextInput>(null);
-  
+
   const MemoizedHeader = useCallback(() => {
     return (
       <DownloadHeader
@@ -921,7 +760,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
   const getIndex = (
     messageId: string,
-    timeout = 5000,
+    timeout = 2000,
     interval = 100
   ): Promise<number | null> => {
     return new Promise((resolve) => {
@@ -929,15 +768,11 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
       const check = () => {
         const index = decoratedMessages.findIndex((msg) => msg.id === messageId);
-        // console.log('length',messages.length);
         if (index !== undefined) {
-          console.log('index:', index);
           resolve(index);
         } else if (Date.now() - start >= timeout) {
-          console.log('timeout');
           resolve(null); // fallback after timeout
         } else {
-          console.log('waiting');
           setTimeout(check, interval);
         }
       };
@@ -946,38 +781,34 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     });
   };
 
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+
 
   const scrollToMessageById = async (messageId: string) => {
     const targetIndex = decoratedMessages.findIndex((msg) => msg.id === messageId);
-    // console.log('decorated',decoratedMessages);
-    // console.log('messages',messages);
-    // console.log('targetIndex:', targetIndex);
+    console.log('targetIndex:', targetIndex);
     if (targetIndex !== undefined) {
-      flatListRef.current?.scrollToIndex({
-        index: targetIndex,
-        animated: true,
-        viewPosition: 0.5, // keeps it mid-screen, feels smoother
-      });
-      setHighlightedMessageId(messageId); // for highlight effect
-      setTimeout(() => setHighlightedMessageId(null), 2000);
+      if (flatListRef.current) {
+        flatListRef.current?.scrollToIndex({
+          index: targetIndex,
+          animated: true,
+          viewPosition: 0.5, // keeps it mid-screen, feels smoother
+        });
+        setHighlightedMessageId(messageId); // for highlight effect
+        setTimeout(() => setHighlightedMessageId(null), 2000);
+      }
     } else {
-      const newMessages = await CheckAndLoadMessage(chatId, messageId, messages[messages.length - 1].timestamp);
+      const newMessages = await CheckAndLoadGroupMessage(groupId, messageId, messages[messages.length - 1].timestamp);
       if (!newMessages) {
         ToastAndroid.show('Could not find the message', ToastAndroid.SHORT);
         return;
       }
-
-      // let index = -1;
-
       setMessages((prevMessages) => {
-        const combined = [...newMessages, ...prevMessages];
-        console.log(combined);
-        return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
+        const combined = [...prevMessages,...newMessages];
+        return combined;
       }
       );
-
       const index = await getIndex(messageId);
-
       if (index !== null) {
         flatListRef.current?.scrollToIndex({
           index,
@@ -1006,11 +837,13 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     ToastAndroid.show('Copied to clipboard', ToastAndroid.SHORT);
   };
 
+
+
+
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-black"
+      style={{ flex: 1, backgroundColor: 'black' }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
     >
       {isSearching ? (
         <View className="px-4 pt-3 bg-black">
@@ -1035,42 +868,29 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
         </View>
       ) : (
-        receiverDetails && (
-          <TouchableOpacity
-            onPress={() => {
-              navigation.navigate('ChatUserProfile', {
-                chatId: chatId,
-                receiverDetails: receiverDetails,
-              });
-            }}
-          >
+        <TouchableOpacity
+          onPress={() => {
+            navigation.navigate('GroupDetailsScreen', {
+              groupId: groupId,
+            });
+          }}
+        >
+          {groupDetails && (
             <View style={styles.statusBar}>
-              <Image source={{ uri: receiverDetails.profilePic ?? '' }} style={styles.profilePic} />
-              <View style={styles.userInfo}>
-                <Text style={styles.username}>{receiverDetails.username}</Text>
-                {typing && <Text style={styles.status}>Typing...</Text>}
-                {receiverDetails.status && !typing && <Text style={styles.status}>{receiverDetails.status}</Text>}
-                {receiverDetails.lastSeen && <Text style={styles.status}>Last seen: {receiverDetails.lastSeen}</Text>}
-              </View>
-              <TouchableOpacity
-                onPress={() => setIsSearching(true)}
-                style={{ position: 'absolute', right: 16 }}
-              >
-                <Ionicons name="search" size={20} color="white" />
-              </TouchableOpacity>
+              <Image source={{ uri: groupDetails.photoURL ?? '' }} style={styles.profilePic} />
+              <Text style={styles.username}>{groupDetails.name}</Text>
+              {typingStatus !== '' && <Text style={styles.status}>{typingStatus}</Text>}
             </View>
-          </TouchableOpacity>
-        )
+          )}
+        </TouchableOpacity>
       )}
 
       <FlatList
         ref={flatListRef}
         data={decoratedMessages}
-        inverted={true}
         renderItem={({ item, index }) => {
-          if (!item) return null;
           return (
-            <RenderMessage
+            <RenderGroupMessage
               item={item}
               index={index}
               currentUserId={currentUserId}
@@ -1082,14 +902,15 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
               handleReply={handleReply}
               handleDelete={handleDelete}
             />
-          );
+          )
         }}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
         initialNumToRender={10} // Optimize for large lists
         onEndReached={onEndReached}
-        onEndReachedThreshold={0.2}
+        onEndReachedThreshold={0.3}
         ListFooterComponent={loadingMore ? <ActivityIndicator /> : null}
+        initialScrollIndex={initialUnreadIndex}
         onScrollToIndexFailed={({ index }) => {
           console.log('Scroll failed. Retrying index:', index);
           setTimeout(() => {
@@ -1101,6 +922,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
           }, 300); // wait for layout
         }}
         extraData={highlightedMessageId}
+        inverted
       />
 
       {attachedMedia && (
@@ -1137,7 +959,8 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       <View className="px-4 py-3 bg-zinc-900 border-t border-zinc-700">
         {replyTo && (
           <View className="bg-zinc-800 px-4 py-2 border-l-4 border-blue-500 mb-2 relative rounded">
-            <Text className="text-white text-xs">Replying to: {replyTo.text}</Text>
+            <Text className="text-white text-sm bold">Replying to:{replyTo.senderName}</Text>
+            <Text className="text-white text-xs"> {replyTo.text}</Text>
             <TouchableOpacity
               onPress={() => {
                 setReplyTo(null); // Close reply
@@ -1249,7 +1072,8 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       />
     </KeyboardAvoidingView>
   );
-}
+};
+
 const styles = StyleSheet.create({
   statusBar: {
     flexDirection: 'row',
@@ -1265,9 +1089,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginRight: 10,
   },
-  userInfo: {
-    flex: 1,
-  },
   username: {
     color: 'white',
     fontSize: 16,
@@ -1278,3 +1099,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 });
+
+export default GroupChatScreen;
+

@@ -53,27 +53,31 @@ const styles = StyleSheet.create({
         backgroundColor: '#1e1e1e',
     },
     listView: {
-        backgroundColor: 'white',
-        borderRadius: 8,
-        marginHorizontal: 8,
+        backgroundColor: '#1e1e1e', // Dark gray background for the suggestion list
+        borderRadius: 8, // Rounded corners for the list
+        marginHorizontal: 8, // Space between the list and the screen edges
         elevation: 5, // For Android shadow
         shadowColor: '#000', // For iOS shadow
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
         shadowRadius: 4,
+        maxHeight: 200, // Limit the height of the list
     },
     row: {
         padding: 12,
+        backgroundColor: '#1e1e1e', // Slightly lighter gray for individual items
         borderBottomWidth: 1,
-        borderBottomColor: '#444',
+        borderBottomColor: '#444', // Subtle border between items
+        borderRadius: 4, // Rounded corners for individual items
+        marginHorizontal: 4, // Space between items and the list edges
     },
     separator: {
         height: 1,
-        backgroundColor: '#444',
+        backgroundColor: '#444', // Subtle separator color
     },
     description: {
-        // backgroundColor: '#1e1e1e',
-        color: 'black',
+        color: '#ffffff', // White text for better contrast
+        fontSize: 16,
     },
 });
 

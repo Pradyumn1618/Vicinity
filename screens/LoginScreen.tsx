@@ -66,17 +66,40 @@ useFocusEffect(
   const signInWithEmail = async () => {
     try {
       const user = await auth().signInWithEmailAndPassword(email, password);
-      if(!user.user.emailVerified) {
+      if (!user.user.emailVerified) {
         throw new Error('Email not verified');
       }
       mmkv.set('user', JSON.stringify(auth().currentUser));
       Alert.alert('Login Successful');
       navigation.navigate('Onboarding');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      let errorMessage = 'An unknown error occurred';
+  
+      if (error.code) {
+        switch (error.code) {
+          case 'auth/user-not-found':
+            errorMessage = 'No account found with this email address.';
+            break;
+          case 'auth/wrong-password':
+            errorMessage = 'Incorrect password. Please try again.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'The email address is invalid.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'This account has been disabled.';
+            break;
+          default:
+            errorMessage = error.message;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+  
       Alert.alert('Login Failed', errorMessage);
     }
   };
+  
   return (
     <View style={{ flex: 1, justifyContent: 'center', padding: 20,backgroundColor:'black' }}>
       <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 20,color:'white',textAlign:'center' }}>Login</Text>

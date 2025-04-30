@@ -13,18 +13,20 @@ import InboxScreen from './screens/chatMainScreen.tsx';
 import { rootStackParamList } from './helper/types.tsx';
 import FullProfileScreen from './screens/FullProfileScreen.tsx';
 import PostList from './screens/PostList.tsx';
-
+import MediaProfileScreen from './screens/receiverProfile.tsx';
+import CreateGroupScreen from './screens/createGroup.tsx';
+import GroupChatScreen from './screens/groupChatScreen.tsx';
+import GroupDetailsScreen from './screens/groupDetailsScreen.tsx';
+import PostScreen from './screens/PostScreen.tsx';
+import CreatePostScreen from './screens/CreatePost.tsx';
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
 const Navigation = () => {
-
-  
-
   return (
     // <NavigationContainer>
       <Stack.Navigator initialRouteName="Home" screenOptions={{ headerBackVisible: false, headerShown: false }}>
-        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Home" component={PostScreen} />
         <Stack.Screen name="Events" component={EventsScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Signup" component={SignupScreen} />
@@ -35,6 +37,11 @@ const Navigation = () => {
         <Stack.Screen name="Inbox" component={InboxScreen} />
         <Stack.Screen name="FullProfile" component={FullProfileScreen} />
         <Stack.Screen name="PostList" component={PostList}/>
+        <Stack.Screen name="ChatUserProfile" component={MediaProfileScreen} />
+        <Stack.Screen name="CreateGroupScreen" component={CreateGroupScreen}/>
+        <Stack.Screen name="GroupChatScreen" component={GroupChatScreen} />
+        <Stack.Screen name="GroupDetailsScreen" component={GroupDetailsScreen} />
+        <Stack.Screen name="CreatePost" component={CreatePostScreen} />
         {/* Add more screens here */}
       </Stack.Navigator>
     // </NavigationContainer>

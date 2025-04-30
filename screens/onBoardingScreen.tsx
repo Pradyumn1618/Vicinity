@@ -8,6 +8,7 @@ import { NavigationProp, useFocusEffect } from "@react-navigation/native";
 // import { PermissionsAndroid } from "react-native";
 // import * as geofire from 'geofire-common';
 import mmkv from "../storage";
+import { syncMessages } from "../helper/databaseHelper";
 // import { openSettings } from 'react-native-permissions';
 
 
@@ -21,6 +22,9 @@ interface OnboardingScreenProps {
 
 
 export default function OnboardingScreen({ navigation }: OnboardingScreenProps) {
+    // const [loading, setLoading] = useState(false);
+
+
     const checkAuthentication = React.useCallback(() => {
         if (!mmkv.getString('user')) {
             // Use reset instead of navigate to remove the current screen from the stack
@@ -29,6 +33,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
                 routes: [{ name: 'Login' }],
             });
         }
+        setLoading(false);
     }, [navigation]);
     useEffect(() => {
         checkAuthentication();
@@ -41,7 +46,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
     );
 
     const [username, setUsername] = useState("");
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
     const user = auth().currentUser;
@@ -51,6 +56,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             if (!user) return;
 
             // Reference to the user document
+            setLoading(true);
             const userRef = doc(db, "users", user.uid);
             // Get the document data
             const docSnap = await getDoc(userRef);
@@ -59,11 +65,18 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             if (docSnap.exists) {
                 const data = docSnap.data();
                 if (data?.username) {
+                    const token = await auth().currentUser?.getIdToken();
+                    if (token) {
+                        syncMessages(token);
+                    } else {
+                        console.error("Failed to retrieve token.");
+                    }
                     navigation.reset({ index: 0, routes: [{ name: "Home" }] });
                 }
             } else {
                 console.log("No such document!");
             }
+            setLoading(false);
             // else stay on the current screen to collect username/permissions
         };
 
