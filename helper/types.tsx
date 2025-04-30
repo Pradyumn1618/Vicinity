@@ -19,4 +19,5 @@ export type rootStackParamList = {
     GroupChatScreen: {groupId:string};
     CreateGroupScreen: undefined;
     GroupDetailsScreen: { groupId: string };
+    PostScreen: undefined;
 }

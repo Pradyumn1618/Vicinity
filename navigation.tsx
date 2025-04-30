@@ -15,6 +15,7 @@ import MediaProfileScreen from './screens/receiverProfile.tsx';
 import CreateGroupScreen from './screens/createGroup.tsx';
 import GroupChatScreen from './screens/groupChatScreen.tsx';
 import GroupDetailsScreen from './screens/groupDetailsScreen.tsx';
+import PostScreen from './screens/PostScreen.tsx';
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
@@ -22,7 +23,7 @@ const Navigation = () => {
   return (
     // <NavigationContainer>
       <Stack.Navigator initialRouteName="Home" screenOptions={{ headerBackVisible: false, headerShown: false }}>
-        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Home" component={PostScreen} />
         <Stack.Screen name="Events" component={EventsScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Signup" component={SignupScreen} />
