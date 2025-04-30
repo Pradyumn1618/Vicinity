@@ -1,6 +1,6 @@
 // import { check, PERMISSIONS, RESULTS } from "react-native-permissions";
 // import { Alert, Linking } from "react-native";
-import { PermissionsAndroid, Platform } from "react-native";
+import { Alert, PermissionsAndroid, Platform } from "react-native";
 import Geolocation from '@react-native-community/geolocation';
 import Geohash from 'ngeohash';
 import mmkv from '../storage';
@@ -62,6 +62,7 @@ export const startLocationTracking = (userId: string) => {
       async position => {
         const { latitude, longitude } = position.coords;
         const currentGeoHash = Geohash.encode(latitude, longitude, 6);
+        console.log("geohash",currentGeoHash);
   
         const oldHash = mmkv.getString('geohash');
         if(!oldHash){

@@ -16,6 +16,7 @@ import CreateGroupScreen from './screens/createGroup.tsx';
 import GroupChatScreen from './screens/groupChatScreen.tsx';
 import GroupDetailsScreen from './screens/groupDetailsScreen.tsx';
 import PostScreen from './screens/PostScreen.tsx';
+import CreatePostScreen from './screens/CreatePost.tsx';
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
@@ -36,6 +37,7 @@ const Navigation = () => {
         <Stack.Screen name="CreateGroupScreen" component={CreateGroupScreen}/>
         <Stack.Screen name="GroupChatScreen" component={GroupChatScreen} />
         <Stack.Screen name="GroupDetailsScreen" component={GroupDetailsScreen} />
+        <Stack.Screen name="CreatePost" component={CreatePostScreen} />
         {/* Add more screens here */}
       </Stack.Navigator>
     // </NavigationContainer>

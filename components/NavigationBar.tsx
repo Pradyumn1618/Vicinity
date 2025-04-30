@@ -22,6 +22,10 @@ const NavigationBar = () => {
     Alert.alert("Navigation prop is undefined. Ensure NavigationBar is used within a NavigationContainer.");
     return null;
   }
+
+  const handleCreatePost = () => {
+    navigation.navigate('CreatePost');
+  };
   
   const handleLogout = async () => {
     try {
@@ -59,6 +63,11 @@ const NavigationBar = () => {
           <Ionicons name="log-out-outline" size={24} color="white" />
           <Text className="text-white text-xs mt-1">Logout</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity onPress={handleCreatePost} className="items-center">
+        <Ionicons name="add-circle-outline" size={24} color="white" />
+        <Text className="text-white text-xs mt-1">Create Post</Text>
+      </TouchableOpacity>
       </View>
   );
 };
