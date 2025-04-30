@@ -9,6 +9,7 @@ export const getDBConnection = async () => {
 
 export const createTables = async (db: SQLite.SQLiteDatabase) => {
     // Messages Table
+    try{
     await db.executeSql(`CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY,
   participants TEXT, -- Stored as JSON string
@@ -24,7 +25,8 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
       receiver TEXT,
       text TEXT,
       media TEXT,
-      replyTo TEXT,
+      replyToId TEXT,
+      replyToText TEXT,
       timestamp INTEGER,
       delivered INTEGER DEFAULT 0,
       seen INTEGER DEFAULT 0,
@@ -56,7 +58,7 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
   await db.executeSql(
     `CREATE TABLE IF NOT EXISTS deletedGroupMessages (
     id TEXT PRIMARY KEY,
-    groupId TEXT,
+    groupId TEXT
   );
     `
   );
@@ -65,9 +67,12 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
     `CREATE TABLE IF NOT EXISTS groupUnreadCounts (
     groupId TEXT PRIMARY KEY,
     count INTEGER,
-    UnreadTimestamp INTEGER,
+    UnreadTimestamp INTEGER
   );`
   );
+}catch(error){
+    console.error("Error creating tables:", error);
+  }
 };
 
 export const closeDB = async (db: SQLite.SQLiteDatabase) => {

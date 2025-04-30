@@ -13,6 +13,7 @@ import {
   ToastAndroid,
   Alert,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -27,6 +28,12 @@ import {
   orderBy,
   setDoc,
   deleteDoc,
+  endBefore,
+  limit,
+  getDocs,
+  startAt,
+  startAfter,
+  endAt,
 } from '@react-native-firebase/firestore';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { v4 as uuidv4 } from 'uuid';
@@ -35,7 +42,7 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { deleteObject, getDownloadURL, getStorage, ref, uploadBytesResumable } from '@react-native-firebase/storage';
 import moment from 'moment';
 import { nanoid } from 'nanoid';
-import { insertIntoDeletedGroupMessages, insertIntoDeletedMessages, resetUnreadCount } from '../helper/databaseHelper';
+import { CheckAndLoadGroupMessage, getGroupUnreadTimestamp, insertIntoDeletedGroupMessages, insertIntoDeletedMessages, resetUnreadCount, setGroupUnreadTimestamp } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
 import { send } from 'process';
 import { sendGroupNotification } from '../helper/sendNotification';
@@ -47,7 +54,6 @@ import FastImage from 'react-native-fast-image';
 import { DownloadHeader } from '../components/downLoad';
 import RenderGroupMessage from '../components/renderGrpMessage';
 import ImageViewing from 'react-native-image-viewing';
-import { group } from 'console';
 
 interface Message {
   id: string;
@@ -77,6 +83,10 @@ const GroupChatScreen = ({ route, navigation }) => {
   const [typingStatus, setTypingStatus] = useState('');
   const typerList = useRef<string[]>([]);
   const socket = useSocket();
+  const [unreadTimestamp,setUnreadTimestamp] = useState<number>(0);
+  const hasScrolledToUnread = useRef(false);
+  const [endTimestamp, setEndTimestamp] = useState<number>(0);
+
 
   useEffect(() => {
     const handleGroupTyping = (data) => {
@@ -120,6 +130,19 @@ const GroupChatScreen = ({ route, navigation }) => {
       socket.off('group-typing-stopped');
     };
   }, [socket, groupId]);
+
+  useLayoutEffect(()=> {
+    const getUnreadTimestamp = async () => {
+      const timestamp = await getGroupUnreadTimestamp(groupId);
+      if (timestamp) {
+        setUnreadTimestamp(timestamp);
+      } else {
+        setUnreadTimestamp(0);
+      }
+      setUnreadTimestamp(timestamp);
+    };
+    getUnreadTimestamp();
+  },[groupId]);
 
 
 
@@ -241,15 +264,16 @@ const GroupChatScreen = ({ route, navigation }) => {
       const userSnap = await getDoc(userRef);
       if (userSnap.exists) {
         const userData = userSnap.data();
+        // console.log('User data:', userData);
         setCurrentUser({
-          id: currentUser,
+          id: currentUserId,
           username: userData?.username,
           photoURL: userData?.profilePic,
         });
       }
     };
-    if (currentUser) getUserDetails();
-  }, [currentUserId, currentUser, db]);
+    getUserDetails();
+  }, [currentUserId, db]);
 
   useEffect(() => {
     const groupRef = doc(db, 'groups', groupId);
@@ -263,15 +287,87 @@ const GroupChatScreen = ({ route, navigation }) => {
   }, [groupId, db]);
 
   useEffect(() => {
-    const messagesRef = collection(db, 'groups', groupId, 'messages');
-    const q = query(messagesRef, orderBy('timestamp', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Message));
-      setMessages(fetched);
-    });
+    if (!groupId || unreadTimestamp == null) return;
+    console.log('here');
+  
+    const fetchMessagesAroundUnread = async () => {
+      setLoadingMore(true);
+      try {
+        const messagesRef = collection(db, 'groups', groupId, 'messages');
+  
+        // Query 1: Fetch 20 messages BEFORE unreadTimestamp
+        const beforeQ = query(
+          messagesRef,
+          orderBy('timestamp', 'desc'),
+          startAfter(unreadTimestamp),
+          limit(50)
+        );
+        const beforeSnap = await getDocs(beforeQ);
+        const beforeMessages = beforeSnap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as Message))
+        
+      setEndTimestamp(beforeMessages[beforeMessages.length - 1]?.timestamp);
+  
+        // Query 2: Fetch ALL messages AFTER (or from) unreadTimestamp
+        const afterQ = query(
+          messagesRef,
+          orderBy('timestamp', 'desc'),
+          endAt(unreadTimestamp)
+        );
+        const afterSnap = await getDocs(afterQ);
+        const afterMessages = afterSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+  
+        // Combine and set
+        const combined = [...afterMessages,...beforeMessages];
+        setMessages(combined);
+  
+        // Optional: Update unread timestamp cache
+        setGroupUnreadTimestamp(groupId, afterMessages[0]?.timestamp);
+        console.log('messages',combined);
+  
+      } catch (err) {
+        console.error('Error fetching messages:', err);
+      }finally {
+        setLoadingMore(false);
+      }
+    };
+  
+    fetchMessagesAroundUnread();
+  }, [groupId, unreadTimestamp, db]);
 
-    return () => unsubscribe();
-  }, [groupId, db]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const onEndReached = async () => {
+    if (!decoratedMessages || decoratedMessages.length === 0) return;
+    if(loadingMore || !hasMore) return;
+    if (!endTimestamp) return;
+    setLoadingMore(true);
+    try {
+      const messagesRef = collection(db, 'groups', groupId, 'messages');
+      const q = query(
+        messagesRef,
+        orderBy('timestamp', 'desc'),
+        startAfter(messages[messages.length - 1].timestamp),
+        limit(100)
+      );
+      const snapshot = await getDocs(q);
+      const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+      console.log('endTimestamp',endTimestamp);
+      console.log('fetchedNewMessages',newMessages);
+      if (newMessages.length > 0) {
+        setEndTimestamp(newMessages[newMessages.length - 1]?.timestamp);
+        setMessages(prevMessages => [...prevMessages, ...newMessages]);
+      }
+      if (newMessages.length < 100) {
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error('Error loading more messages:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   type DividerItem = {
     type: 'divider';
@@ -305,6 +401,21 @@ const GroupChatScreen = ({ route, navigation }) => {
   const decoratedMessages = useMemo(() => {
     return searchText.trim() === '' ? formatMessagesWithDateDividers(messages) : formatMessagesWithDateDividers(filteredMessages);
   }, [messages, formatMessagesWithDateDividers, searchText, filteredMessages]);
+
+  const initialUnreadIndex = useMemo(() => {
+    if (hasScrolledToUnread.current) return 0;
+  
+    const index = decoratedMessages.findIndex(
+      (msg) => msg.type === 'message' && msg.timestamp >= unreadTimestamp
+    );
+  
+    if (index !== -1) {
+      hasScrolledToUnread.current = true;
+      return index;
+    }
+  
+    return 0;
+  }, [decoratedMessages, unreadTimestamp]);
 
 
   // useEffect(() => {
@@ -437,20 +548,30 @@ const GroupChatScreen = ({ route, navigation }) => {
       // Add the message to Firestore
       const chatsRef = collection(db, 'groups', groupId, 'messages');
       const messageRef = doc(chatsRef, messageId);
-      await setDoc(messageRef, messageToDisplay);
-      setMessages((prevMessages) =>
-        prevMessages.map((message) =>
-          message.id === messageId ? { ...message, delivered: true } : message
-        )
+      console.log('message',messageToDisplay);
+      await setDoc(messageRef, {...messageToDisplay,delivered: true});
+      setMessages((prevMessages) =>{
+        console.log('prevMessages',prevMessages);
+        
+          const updated = prevMessages.map((message) => {
+            if (message.id === messageId) {
+              console.log('Matched message:', message);
+              return { ...message, delivered: true };
+            }
+            return message;
+          })
+          console.log('updated',updated);
+          return updated;
+      
+      }
       );
-      messageToDisplay.delivered = true;
-      // insertMessage(messageToDisplay, chatId, receiver);
       setReplyTo(null);
       // setMedia(null); // Clear media after sending
       setUploadProgress(0);
+      flatListRef.current?.scrollToOffset({ animated: true, offset: 0 });
       // setShowDivider(false);
       try {
-        if (!reply) {
+        if (reply) {
           sendGroupNotification(groupId, NotiMessage, currentUserId, reply.id);
         } else {
           sendGroupNotification(groupId, NotiMessage, currentUserId);
@@ -460,7 +581,7 @@ const GroupChatScreen = ({ route, navigation }) => {
         console.error('Error sending group notification:', error);
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error sending message:', error.message);
 
     }
 
@@ -495,15 +616,6 @@ const GroupChatScreen = ({ route, navigation }) => {
   };
 
 
-
-  const messageIdToIndexMap = useMemo(() => {
-    const map: { [key: string]: number } = {};
-    messages.forEach((msg, idx) => {
-      map[msg.id] = idx;
-    });
-    return map;
-  }, [messages]);
-
   const handleDelete = (messageId: string): void => {
     Alert.alert(
       "Delete Message",
@@ -511,7 +623,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       [
         {
           text: "Cancel",
-          style: "cancel"
+          style: "cancel",
         },
         {
           text: "Delete",
@@ -523,6 +635,11 @@ const GroupChatScreen = ({ route, navigation }) => {
     );
 
   };
+
+  function extractStoragePathFromUrl(url) {
+    const match = decodeURIComponent(url).match(/\/o\/(.+?)\?/);
+    return match ? match[1] : null;
+  }
 
   const confirmDelete = async (messageId: string): Promise<void> => {
     const netInfo = await NetInfo.fetch();
@@ -550,7 +667,9 @@ const GroupChatScreen = ({ route, navigation }) => {
 
         // Check if the message has media
         if (messageData?.media) {
-          const mediaRef = ref(storage, `chats/${groupId}/${messageData.media}`);
+          const path = extractStoragePathFromUrl(messageData.media);
+          console.log('path:', path);
+          const mediaRef = ref(storage, path);
           // Delete the media from Firebase Storage
           await deleteObject(mediaRef);
           console.log('Media deleted successfully from Firebase Storage');
@@ -639,7 +758,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       />);
   }, [selectedMedia, downloadAndSaveToGallery, modalVisible]);
 
-  const waitForMessageIndexInMap = (
+  const getIndex = (
     messageId: string,
     timeout = 2000,
     interval = 100
@@ -648,7 +767,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       const start = Date.now();
 
       const check = () => {
-        const index = messageIdToIndexMap[messageId];
+        const index = decoratedMessages.findIndex((msg) => msg.id === messageId);
         if (index !== undefined) {
           resolve(index);
         } else if (Date.now() - start >= timeout) {
@@ -666,7 +785,7 @@ const GroupChatScreen = ({ route, navigation }) => {
 
 
   const scrollToMessageById = async (messageId: string) => {
-    const targetIndex = messageIdToIndexMap[messageId];
+    const targetIndex = decoratedMessages.findIndex((msg) => msg.id === messageId);
     console.log('targetIndex:', targetIndex);
     if (targetIndex !== undefined) {
       if (flatListRef.current) {
@@ -679,28 +798,28 @@ const GroupChatScreen = ({ route, navigation }) => {
         setTimeout(() => setHighlightedMessageId(null), 2000);
       }
     } else {
-      // const newMessages = await CheckAndLoadMessage(chatId, messageId, messages[messages.length - 1].timestamp);
-      // if (!newMessages) {
-      //   ToastAndroid.show('Could not find the message', ToastAndroid.SHORT);
-      //   return;
-      // }
-      // setMessages((prevMessages) => {
-      //   const combined = [...newMessages, ...prevMessages];
-      //   return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
-      // }
-      // );
-      // const index = await waitForMessageIndexInMap(messageId);
-      // if (index !== null) {
-      //   flatListRef.current?.scrollToIndex({
-      //     index,
-      //     animated: true,
-      //     viewPosition: 0.5,
-      //   });
-      //   setHighlightedMessageId(messageId);
-      //   setTimeout(() => setHighlightedMessageId(null), 2000);
-      // } else {
-      //   ToastAndroid.show('Could not scroll to message', ToastAndroid.SHORT);
-      // }
+      const newMessages = await CheckAndLoadGroupMessage(groupId, messageId, messages[messages.length - 1].timestamp);
+      if (!newMessages) {
+        ToastAndroid.show('Could not find the message', ToastAndroid.SHORT);
+        return;
+      }
+      setMessages((prevMessages) => {
+        const combined = [...prevMessages,...newMessages];
+        return combined;
+      }
+      );
+      const index = await getIndex(messageId);
+      if (index !== null) {
+        flatListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0.5,
+        });
+        setHighlightedMessageId(messageId);
+        setTimeout(() => setHighlightedMessageId(null), 2000);
+      } else {
+        ToastAndroid.show('Could not scroll to message', ToastAndroid.SHORT);
+      }
 
     }
   };
@@ -788,9 +907,10 @@ const GroupChatScreen = ({ route, navigation }) => {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
         initialNumToRender={10} // Optimize for large lists
-        // onEndReached={onEndReached}
-        onEndReachedThreshold={0.2}
-        // ListFooterComponent={loadingMore ? <ActivityIndicator /> : null}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={loadingMore ? <ActivityIndicator /> : null}
+        initialScrollIndex={initialUnreadIndex}
         onScrollToIndexFailed={({ index }) => {
           console.log('Scroll failed. Retrying index:', index);
           setTimeout(() => {
@@ -981,3 +1101,4 @@ const styles = StyleSheet.create({
 });
 
 export default GroupChatScreen;
+

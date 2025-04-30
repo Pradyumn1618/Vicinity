@@ -77,7 +77,7 @@ export const sendDeleteNotification = async (fcmTokens: string[], messageId: str
   }
 }
 
-export const sendGroupNotification = async (groupId: string, message, currentUser:string,replyTo: string = null) => {
+export const sendGroupNotification = async (groupId: string, message, currentUser: string, replyTo: string = null) => {
   const fdb = getFirestore();
   const groupRef = doc(fdb, 'groups', groupId);
   const groupSnap = await getDoc(groupRef);
@@ -87,38 +87,62 @@ export const sendGroupNotification = async (groupId: string, message, currentUse
     return;
   }
   let replyToSender = null;
-  if(!replyTo){
-  const messageRef = doc(fdb, 'groups', groupId, 'messages', replyTo);
-  const messageSnap = await getDoc(messageRef);
-  const messageData = messageSnap.data();
-  if (!messageData) {
-    console.error("Message data not found");
-    return;
-  }
-  replyToSender = messageData.sender;
-  const senderRef = doc(fdb, 'users', messageData.sender);
-  const senderSnap = await getDoc(senderRef);
-  const token = senderSnap.data()?.fcmToken;
-  if (token) {
-    try {
-      const res = await sendNotification({
-        token: [token], // pass array
-        title: `${groupData.groupName}:${message.senderName} replied to your message`,
-        body: message.text,
-        data: {
-          purpose: 'group-message',
-          customKey: String(groupId),
-          sender: String(message.sender),
-          id: String(message.id),
-        }
-      });
-      console.log("Notification sent:", res.data);
-    } catch (err) {
-      console.error("Error sending notification:", err);
+  if (!replyTo) {
+    const messageRef = doc(fdb, 'groups', groupId, 'messages', replyTo);
+    const messageSnap = await getDoc(messageRef);
+    const messageData = messageSnap.data();
+    if (!messageData) {
+      console.error("Message data not found");
+      return;
     }
+    replyToSender = messageData.sender;
+    const senderRef = doc(fdb, 'users', messageData.sender);
+    const senderSnap = await getDoc(senderRef);
+    const token = senderSnap.data()?.fcmToken;
+    const Muted = senderSnap.data()?.muted;
+    const isMuted = Muted?.find((group) => group === groupId);
+
+    if (token) {
+      if (isMuted) {
+        try {
+          const res = await sendDataNotification({
+            token: [token],
+            data: {
+              purpose: 'group-message',
+              customKey: String(groupId),
+              sender: String(message.sender),
+              id: String(message.id),
+            },
+          });
+          console.log("Notification sent:", res.data);
+        } catch (error) {
+          console.error("Error sending notification:", error);
+        }
+
+      } else {
+        try {
+          const res = await sendNotification({
+            token: [token], // pass array
+            title: `${groupData.groupName}:${message.senderName} replied to your message`,
+            body: message.text,
+            data: {
+              purpose: 'group-message',
+              customKey: String(groupId),
+              sender: String(message.sender),
+              id: String(message.id),
+            },
+          });
+          console.log("Notification sent:", res.data);
+        } catch (err) {
+          console.error("Error sending notification:", err);
+        }
+      }
+    }
+
   }
 
-}
+  let MutedMembers = [];
+  let mutedFcmTokens = [];
 
   const members = groupData.members;
   const fcmTokens = members.map(async (member) => {
@@ -126,9 +150,18 @@ export const sendGroupNotification = async (groupId: string, message, currentUse
     if (member === replyToSender) return undefined;
     const userRef = doc(fdb, 'users', member);
     const userSnap = await getDoc(userRef);
+    const muted = userSnap.data()?.muted;
+    const isMuted = muted?.find((group) => group === groupId);
+    if (isMuted) {
+      MutedMembers.push(member);
+      mutedFcmTokens.push(userSnap.data()?.fcmToken);
+      return undefined;
+    }
     return userSnap.data()?.fcmToken;
   }).filter(token => token !== undefined);
-  
+
+  mutedFcmTokens = mutedFcmTokens.filter(token => token !== undefined);
+
   try {
     const res = await sendNotification({
       token: fcmTokens, // pass array
@@ -145,6 +178,22 @@ export const sendGroupNotification = async (groupId: string, message, currentUse
   } catch (err) {
     console.error("Error sending notification:", err);
   }
+
+  try {
+    const res = await sendDataNotification({
+      token: mutedFcmTokens, // pass array
+      data: {
+        purpose: 'group-message',
+        sender: String(message.sender),
+        id: String(message.id),
+        customKey: String(groupId),
+      }
+    });
+    console.log("Notification sent:", res.data);
+  } catch (err) {
+    console.error("Error sending notification:", err);
+  }
+
 }
 
 export const sendAddedToGroupNotification = async (fcmTokens: string[], groupName: string, groupId: string, addedBy: string) => {

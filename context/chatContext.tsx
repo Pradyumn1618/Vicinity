@@ -26,7 +26,7 @@ interface Message {
     sender: string;
     timestamp: number;
     media?: string | null;
-    replyTo?: string | null;
+    replyTo?: {text:string,id:string} | null;
     delivered?: boolean;
     seen?: boolean;
   }

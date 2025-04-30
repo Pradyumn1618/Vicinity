@@ -7,6 +7,8 @@ import {
   FlatList,
   TextInput,
   Alert,
+  ToastAndroid,
+  ActivityIndicator,
 } from 'react-native';
 import Modal from 'react-native-modal';
 
@@ -25,6 +27,9 @@ import {
   FieldPath,
   setDoc,
   limit,
+  writeBatch,
+  deleteDoc,
+  getDoc,
 } from '@react-native-firebase/firestore';
 import { deleteObject, getDownloadURL, getStorage, ref, uploadBytesResumable } from '@react-native-firebase/storage';
 import firestore from '@react-native-firebase/firestore';
@@ -35,7 +40,8 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import * as Progress from 'react-native-progress';
 import ImageViewing from "react-native-image-viewing";
 import { sendAddedToGroupNotification } from '../helper/sendNotification';
-
+import { useNavigation } from '@react-navigation/native';
+import { set } from 'date-fns';
 const Tab = createMaterialTopTabNavigator();
 const documentId = firestore.FieldPath.documentId();
 const storage = getStorage();
@@ -52,7 +58,7 @@ const GroupInfoTab = ({ groupId }) => {
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState('');
   const [batch, setBatch] = useState(20);
-  const firestore = getFirestore();
+  const db = getFirestore();
   const auth = getAuth();
   const currentUser = auth.currentUser?.uid;
   const [uploading, setUploading] = useState(false);
@@ -63,6 +69,11 @@ const GroupInfoTab = ({ groupId }) => {
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [imageUri, setImageUri] = useState(null);
+  const navigation = useNavigation();
+  const [loading, setLoading] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
+
 
 
   const isAdmin = group?.admins?.includes(currentUser);
@@ -71,18 +82,39 @@ const GroupInfoTab = ({ groupId }) => {
 
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(firestore, 'groups', groupId), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, 'groups', groupId), (docSnap) => {
       setGroup(docSnap.data());
     });
 
     return unsubscribe;
-  }, [groupId, firestore]);
+  }, [groupId, db]);
+
+  useEffect(() => {
+    const fetchMutedStatus = async () => {
+      const userRef = doc(db, 'users', currentUser);
+      const userSnap = await getDoc(userRef);
+      const mutedGroups = userSnap.data()?.muted || [];
+      setIsMuted(mutedGroups.includes(groupId));
+    };
+
+    fetchMutedStatus();
+  }, [currentUser, db, groupId]);
+
+  const toggleMute = async () => {
+    const userRef = doc(db, 'users', currentUser);
+    const update = isMuted
+      ? { muted: arrayRemove(groupId) }
+      : { muted: arrayUnion(groupId) };
+
+    await updateDoc(userRef, update);
+    setIsMuted(!isMuted);
+  };
 
   useEffect(() => {
     const fetchMembers = async () => {
       if (group?.members?.length) {
         const userIds = group.members.slice(0, batch);
-        const usersRef = collection(firestore, 'users');
+        const usersRef = collection(db, 'users');
 
         // You can only pass up to 10 IDs at a time with documentId()
         const chunks = [];
@@ -102,7 +134,7 @@ const GroupInfoTab = ({ groupId }) => {
     };
 
     fetchMembers();
-  }, [group, batch, firestore]);
+  }, [group, batch, db]);
 
   const handleUserSearch = async (text: string) => {
     setSearchText(text);
@@ -110,7 +142,7 @@ const GroupInfoTab = ({ groupId }) => {
       setSearchResults([]);
       return;
     }
-    const usersRef = collection(firestore, 'users');
+    const usersRef = collection(db, 'users');
     const q = query(
       usersRef,
       where('username', '>=', text),
@@ -156,16 +188,16 @@ const GroupInfoTab = ({ groupId }) => {
     }
 
     try {
-      const groupRef = doc(firestore, 'groups', groupId);
+      const groupRef = doc(db, 'groups', groupId);
       await updateDoc(groupRef, {
         members: arrayUnion(...selectedUsers.map(user => user.id)),
       });
 
       const allUsers = selectedUsers.map((u) => u.id);
-      const b = firestore.batch();
+      const b = db.batch();
 
       allUsers.forEach((userId) => {
-        const userRef = doc(firestore, 'users', userId);
+        const userRef = doc(db, 'users', userId);
         b.update(userRef, {
           groups: arrayUnion(groupId),
         });
@@ -190,7 +222,7 @@ const GroupInfoTab = ({ groupId }) => {
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
-          const groupRef = doc(firestore, 'groups', groupId);
+          const groupRef = doc(db, 'groups', groupId);
           await updateDoc(groupRef, {
             members: arrayRemove(userId),
             admins: arrayRemove(userId),
@@ -201,7 +233,7 @@ const GroupInfoTab = ({ groupId }) => {
   };
 
   const handleMakeAdmin = async (userId) => {
-    const groupRef = doc(firestore, 'groups', groupId);
+    const groupRef = doc(db, 'groups', groupId);
     await updateDoc(groupRef, {
       admins: arrayUnion(userId),
     });
@@ -279,7 +311,13 @@ const GroupInfoTab = ({ groupId }) => {
   };
 
   return (
-    <View className="flex-1 bg-black p-4">
+    <View className="flex-1 bg-black p-4 relative">
+      {loading && (
+        <View className="absolute inset-0 justify-center items-center bg-black bg-opacity-30 z-50">
+          <ActivityIndicator size="large" color="#fff" />
+          <Text className="text-white mt-2">Deleting group...</Text>
+        </View>
+      )}
       {group && (
         <View className="items-center mb-4">
           <TouchableOpacity
@@ -335,7 +373,7 @@ const GroupInfoTab = ({ groupId }) => {
               if (!result.didCancel && result.assets?.[0]?.uri) {
                 const newPhotoURL = await uploadGroupImage(result.assets[0].uri, group.photoURL);
                 console.log('New photo URL:', newPhotoURL);
-                const groupRef = doc(firestore, 'groups', groupId);
+                const groupRef = doc(db, 'groups', groupId);
                 await setDoc(groupRef, { photoURL: newPhotoURL }, { merge: true });
               }
             }}
@@ -404,7 +442,7 @@ const GroupInfoTab = ({ groupId }) => {
             onClose={() => setShowNamePrompt(false)}
             onSubmit={async (text) => {
               if (text?.trim()) {
-                await updateDoc(doc(firestore, 'groups', groupId), { name: text.trim() });
+                await updateDoc(doc(db, 'groups', groupId), { name: text.trim() });
               }
             }}
           />
@@ -415,7 +453,7 @@ const GroupInfoTab = ({ groupId }) => {
             defaultValue={group.description}
             onClose={() => setShowDescPrompt(false)}
             onSubmit={async (text) => {
-              await updateDoc(doc(firestore, 'groups', groupId), { description: text.trim() });
+              await updateDoc(doc(db, 'groups', groupId), { description: text.trim() });
             }}
           />
 
@@ -479,7 +517,7 @@ const GroupInfoTab = ({ groupId }) => {
       {isAdmin && (
 
         <TouchableOpacity
-          onPress={() => {setSearchModalVisible(true);}}
+          onPress={() => { setSearchModalVisible(true); }}
           className="bg-zinc-700 rounded-xl px-4 py-3 mb-4 flex-row items-center justify-center"
         >
           <Ionicons name="person-add" size={20} color="white" style={{ marginRight: 8 }} />
@@ -489,7 +527,7 @@ const GroupInfoTab = ({ groupId }) => {
 
       }
 
-      <Modal isVisible={searchModalVisible} onBackdropPress={() => {setSearchModalVisible(false); setSelectedUsers([]); setSearchText('');setSearchResults([]);}}>
+      <Modal isVisible={searchModalVisible} onBackdropPress={() => { setSearchModalVisible(false); setSelectedUsers([]); setSearchText(''); setSearchResults([]); }}>
         <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12 }}>
           <TextInput
             placeholder="Search users..."
@@ -540,7 +578,7 @@ const GroupInfoTab = ({ groupId }) => {
           <Text className="text-white text-center font-bold">Add Selected Members ({selectedUsers.length})</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => { setSearchModalVisible(false); setSelectedUsers([]); setSearchText('');setSearchResults([]); }}
+          onPress={() => { setSearchModalVisible(false); setSelectedUsers([]); setSearchText(''); setSearchResults([]); }}
 
           className="bg-red-600 rounded-xl px-4 py-3 mt-2"
         >
@@ -559,6 +597,19 @@ const GroupInfoTab = ({ groupId }) => {
         swipeToCloseEnabled={true}
       />
 
+      <TouchableOpacity onPress={toggleMute} className="flex-row justify-center items-center mt-4 space-x-2">
+        <Ionicons
+          name={isMuted ? 'notifications' : 'notifications-off'}
+          size={20}
+          color={isMuted ? '#16A34A' : '#4F46E5'}
+          style={{ marginRight: 8 }}
+        />
+        <Text className="text-gray-400">
+          {isMuted ? 'Unmute Notifications' : 'Mute Notifications'}
+        </Text>
+      </TouchableOpacity>
+
+
       <TouchableOpacity
         onPress={() => {
           Alert.alert('Leave Group', 'Are you sure?', [
@@ -567,7 +618,7 @@ const GroupInfoTab = ({ groupId }) => {
               text: 'Leave',
               style: 'destructive',
               onPress: async () => {
-                const groupRef = doc(firestore, 'groups', groupId);
+                const groupRef = doc(db, 'groups', groupId);
                 await updateDoc(groupRef, {
                   members: arrayRemove(currentUser),
                   admins: arrayRemove(currentUser),
@@ -580,6 +631,63 @@ const GroupInfoTab = ({ groupId }) => {
       >
         <Text className="text-center text-white font-bold">Leave Group</Text>
       </TouchableOpacity>
+      {isAdmin && (
+        <TouchableOpacity
+          onPress={() => {
+            Alert.alert('Delete Group', 'Are you sure?', [
+              { text: 'Cancel' },
+              {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    setLoading(true);
+                    const groupRef = doc(db, 'groups', groupId);
+
+                    // 1. Delete group image from storage
+                    if (group.photoURL) {
+                      await deleteObject(ref(storage, extractStoragePathFromUrl(group.photoURL)));
+                    }
+
+                    // 2. Remove group reference from all members
+                    const batch1 = writeBatch(db);
+                    (group.members || []).forEach((memberId) => {
+                      const userRef = doc(db, 'users', memberId);
+                      batch1.update(userRef, {
+                        groups: arrayRemove(groupId),
+                      });
+                    });
+                    await batch1.commit();
+
+                    // 3. Delete all messages in the group
+                    const groupMessagesRef = collection(db, 'groups', groupId, 'messages');
+                    const messagesSnapshot = await getDocs(groupMessagesRef);
+                    const batch2 = writeBatch(db);
+                    messagesSnapshot.forEach((doc) => {
+                      batch2.delete(doc.ref);
+                    });
+                    await batch2.commit();
+
+                    // 4. Delete the group document itself
+                    await deleteDoc(groupRef);
+
+                    ToastAndroid.show('Group deleted successfully', ToastAndroid.SHORT);
+                    navigation.navigate('Inbox' as never);
+                  } catch (error) {
+                    console.error('Error deleting group:', error);
+                    Alert.alert('Error', 'Failed to delete group. Please try again.');
+                  } finally {
+                    setLoading(false);
+                  }
+                },
+              },
+            ]);
+          }}
+          className="mt-2 py-3 rounded-xl bg-red-600"
+        >
+          <Text className="text-center text-white font-bold">Delete Group</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -619,11 +727,11 @@ const EditPrompt = ({ visible, onClose, onSubmit, defaultValue, title }) => {
 
 const GroupMediaTab = ({ groupId }) => {
   const [media, setMedia] = useState([]);
-  const firestore = getFirestore();
+  const db = getFirestore();
 
   useEffect(() => {
     const q = query(
-      collection(firestore, 'groups', groupId, 'messages'),
+      collection(db, 'groups', groupId, 'messages'),
       where('media', '!=', null)
     );
 
@@ -637,7 +745,7 @@ const GroupMediaTab = ({ groupId }) => {
     });
 
     return unsubscribe;
-  }, [groupId, firestore]);
+  }, [groupId, db]);
 
   const renderItem = ({ item }) => (
     <Image

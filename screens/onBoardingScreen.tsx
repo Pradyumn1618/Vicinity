@@ -33,6 +33,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
                 routes: [{ name: 'Login' }],
             });
         }
+        setLoading(false);
     }, [navigation]);
     useEffect(() => {
         checkAuthentication();
@@ -45,7 +46,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
     );
 
     const [username, setUsername] = useState("");
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
     const user = auth().currentUser;

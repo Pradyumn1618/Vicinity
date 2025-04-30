@@ -7,7 +7,7 @@ interface Message {
     sender: string;
     text: string;
     media?: string | null;
-    replyTo?: string | null;
+    replyTo?: {text:string,id:string} | null;
     timestamp: number;
     delivered?: boolean;
     seen?: boolean;
@@ -16,8 +16,8 @@ interface Message {
 export const insertMessage = async (message: Message, chatId: string, receiver: string): Promise<void> => {
     const db = await getDBConnection();
     await db.executeSql(
-        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media,replyTo,timestamp,delivered,seen) VALUES (?,?,?,?,?,?,?,?,?,?)',
-        [message.id, chatId, message.sender, receiver, message.text, message.media, message.replyTo, message.timestamp, message.delivered, message.seen]
+        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media,replyToId,replyToText,timestamp,delivered,seen) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        [message.id, chatId, message.sender, receiver, message.text, message.media ?? null, message.replyTo?.id ?? null,message.replyTo?.text ?? null, message.timestamp, message.delivered, message.seen]
     );
 };
 
@@ -36,6 +36,7 @@ export const getReceiver = async (chatId: string) => {
 
 }
 
+
 export const getMessages = async (chatId: string, limit: number, offset: number = 0) => {
     const db = await getDBConnection();
     const results = await db.executeSql(
@@ -45,8 +46,21 @@ export const getMessages = async (chatId: string, limit: number, offset: number 
     const rows = results[0].rows;
     const messages = [];
     for (let i = 0; i < rows.length; i++) {
-        messages.push(rows.item(i));
-    }
+        const message = {
+            id: rows.item(i).id,
+            sender: rows.item(i).sender,
+            text: rows.item(i).text,
+            media: rows.item(i).media,
+            replyTo: {
+                text: rows.item(i).replyToText,
+                id: rows.item(i).replyToId
+            },
+            timestamp: rows.item(i).timestamp,
+            delivered: rows.item(i).delivered,
+            seen: rows.item(i).seen,
+        };
+        messages.push(message);
+        }
     return messages;
 };
 
@@ -111,6 +125,39 @@ export const resetGroupUnreadCount = async (groupId: string) => {
         [groupId, 0]
     );
     console.log('Reset unread count for groupId:', groupId);
+};
+
+export const setGroupUnreadTimestamp = async (groupId: string, timestamp: number) => {
+    const db = await getDBConnection();
+    try{
+    console.log('Setting unread timestamp for groupId:', groupId);
+    await db.executeSql(
+        'INSERT OR REPLACE INTO groupUnreadCounts (groupId, UnreadTimestamp) VALUES (?, ?)',
+        [groupId, timestamp]
+    );
+}catch(error){
+    console.log(error.message);
+}
+    console.log('Set unread timestamp for groupId:', groupId);
+}
+
+export const getGroupUnreadTimestamp = async (groupId: string) => {
+    const db = await getDBConnection();
+    try {
+        const results = await db.executeSql(
+            'SELECT UnreadTimestamp FROM groupUnreadCounts WHERE groupId = ?',
+            [groupId]
+        );
+        const rows = results[0].rows;
+        if (rows.length > 0) {
+            console.log('UnreadTimestamp:', rows.item(0).UnreadTimestamp);
+            return Number(rows.item(0).UnreadTimestamp);
+        }
+    } catch (error) {
+        console.log('Error fetching unread timestamp:', error);
+        return 0;
+    }
+    return 0;
 }
 
 export const decrementUnreadCount = async (chatId: string) => {
@@ -277,7 +324,20 @@ export const getLocalMessages = async (chatId: string, beforeTimestamp: number, 
         const rows = result[0].rows;
         const messages = [];
         for (let i = 0; i < rows.length; i++) {
-            messages.push(rows.item(i));
+            const message = {
+                id: rows.item(i).id,
+                sender: rows.item(i).sender,
+                text: rows.item(i).text,
+                media: rows.item(i).media,
+                replyTo: {
+                    text: rows.item(i).replyToText,
+                    id: rows.item(i).replyToId
+                },
+                timestamp: rows.item(i).timestamp,
+                delivered: rows.item(i).delivered,
+                seen: rows.item(i).seen,
+            };
+            messages.push(message);
         }
         return messages;
     } catch (error) {
@@ -482,7 +542,20 @@ export const filterMessagesDB = async (searchText:string='',chatId:string) => {
         const rows = results[0].rows;
         const messages = [];
         for (let i = 0; i < rows.length; i++) {
-            messages.push(rows.item(i));
+            const message = {
+                id: rows.item(i).id,
+                sender: rows.item(i).sender,
+                text: rows.item(i).text,
+                media: rows.item(i).media,
+                replyTo: {
+                    text: rows.item(i).replyToText,
+                    id: rows.item(i).replyToId
+                },
+                timestamp: rows.item(i).timestamp,
+                delivered: rows.item(i).delivered,
+                seen: rows.item(i).seen,
+            };
+            messages.push(message);
         }
         return messages;
     } catch (error) {
@@ -501,7 +574,20 @@ export const getMessagesBetweenTimeRange = async (chatId:string,timestampHigh:nu
         const rows = results[0].rows;
         const messages = [];
         for (let i = 0; i < rows.length; i++) {
-            messages.push(rows.item(i));
+            const message = {
+                id: rows.item(i).id,
+                sender: rows.item(i).sender,
+                text: rows.item(i).text,
+                media: rows.item(i).media,
+                replyTo: {
+                    text: rows.item(i).replyToText,
+                    id: rows.item(i).replyToId
+                },
+                timestamp: rows.item(i).timestamp,
+                delivered: rows.item(i).delivered,
+                seen: rows.item(i).seen,
+            };
+            messages.push(message);
         }
         return messages;
     } catch (error) {
@@ -515,6 +601,38 @@ export const CheckAndLoadMessage = async (chatId:string,messageId:string,timesta
     const messageSnap = await messageRef.get();
     if (messageSnap.exists) {
         const messages = await getMessagesBetweenTimeRange(chatId,timestamp,messageSnap.data()?.timestamp);
+        if (messages.length > 0) {
+            console.log('Messages loaded successfully from SQLite');
+            return messages;
+        } else {
+            console.log('No messages found in SQLite');
+            return null;
+        }
+    } else {
+        console.log('Message does not exist in Firestore');
+        return null;
+    }
+}
+
+const getGroupMessagesBetweenTimeRange = async (groupId:string,timestampHigh:number,timestampLow:number) => {
+    const messageRef = fdb.collection('groups').doc(groupId).collection('messages');
+    const messages = await messageRef.where('timestamp', '<=', timestampHigh).where('timestamp', '>=', timestampLow).orderBy('timestamp', 'desc').get();
+    const messagesArray = [];
+    messages.forEach((doc) => {
+        const data = doc.data();
+        messagesArray.push({
+            id: doc.id,
+            ...data,
+        });
+    });
+    return messagesArray;
+}
+
+export const CheckAndLoadGroupMessage = async (groupId:string,messageId:string,timestamp:number) => {
+    const messageRef = fdb.collection('groups').doc(groupId).collection('messages').doc(messageId);   
+    const messageSnap = await messageRef.get();
+    if (messageSnap.exists) {
+        const messages = await getGroupMessagesBetweenTimeRange(groupId,timestamp,messageSnap.data()?.timestamp);
         if (messages.length > 0) {
             console.log('Messages loaded successfully from SQLite');
             return messages;
