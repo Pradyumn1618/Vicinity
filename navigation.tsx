@@ -11,6 +11,8 @@ import UpdateProfileScreen from './screens/UpdateProfileScreen.tsx';
 import ChatScreen from './screens/chatScreen.tsx';
 import InboxScreen from './screens/chatMainScreen.tsx';
 import { rootStackParamList } from './helper/types.tsx';
+import FullProfileScreen from './screens/FullProfileScreen.tsx';
+import PostList from './screens/PostList.tsx';
 
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
@@ -31,6 +33,8 @@ const Navigation = () => {
         <Stack.Screen name="UpdateProfile" component={UpdateProfileScreen} />
         <Stack.Screen name="ChatScreen" component={ChatScreen} />
         <Stack.Screen name="Inbox" component={InboxScreen} />
+        <Stack.Screen name="FullProfile" component={FullProfileScreen} />
+        <Stack.Screen name="PostList" component={PostList}/>
         {/* Add more screens here */}
       </Stack.Navigator>
     // </NavigationContainer>
