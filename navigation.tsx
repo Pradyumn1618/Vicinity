@@ -20,9 +20,6 @@ import PostScreen from './screens/PostScreen.tsx';
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
 const Navigation = () => {
-
-  
-
   return (
     // <NavigationContainer>
       <Stack.Navigator initialRouteName="Home" screenOptions={{ headerBackVisible: false, headerShown: false }}>

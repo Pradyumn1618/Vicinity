@@ -14,23 +14,38 @@ interface EventCardProps {
   onPress: () => void;
 }
 
-const EventCard: React.FC<EventCardProps> = ({ event, isExpanded, onPress }) => {
+const EventCard: React.FC<EventCardProps> = ({ event, isExpanded, onPress, renderRightAction, }: {
+  event: Event;
+  isExpanded: boolean;
+  onPress: () => void;
+  renderRightAction?: () => JSX.Element;
+}) => {
   return (
     <TouchableOpacity
-      style={[styles.card, isExpanded && styles.expandedCard]}
       onPress={onPress}
+      style={{
+        backgroundColor: '#333',
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 8,
+      }}
     >
-      <Text style={styles.title}>🎉 {event.title}</Text>
-      <Text style={styles.venue}>📍 {event.venue}</Text>
-      <Text style={styles.dateTime}>
-        🕒 {event.dateTime.toLocaleDateString()} {event.dateTime.toLocaleTimeString()}
-      </Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>🎉 {event.title}</Text>
+          <Text style={{ color: 'gray', fontSize: 14 }}>📍 {event.venue}</Text>
+          <Text style={{ color: 'gray', fontSize: 12 }}>
+            {event.dateTime.toLocaleString()}
+          </Text>
+        </View>
+        {renderRightAction && renderRightAction()}
+      </View>
       {isExpanded && (
         <>
-          <View style={styles.divider} />
-          <Text style={styles.description}>📝 {event.description}</Text>
-          <Text style={styles.createdBy}>👤 Created By: {event.createdBy}</Text>
-        </>
+        <View style={styles.divider} />
+        <Text style={styles.description}>📝 {event.description}</Text>
+        <Text style={styles.createdBy}>👤 Created By: {event.createdBy}</Text>
+      </>
       )}
     </TouchableOpacity>
   );
