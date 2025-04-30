@@ -1,3 +1,5 @@
+import { FirebaseFirestoreTypes } from "@react-native-firebase/firestore";
+
 export type rootStackParamList = {
     Home: undefined;
     Events: undefined;
@@ -21,4 +23,15 @@ export type rootStackParamList = {
     GroupDetailsScreen: { groupId: string };
     PostScreen: undefined;
     CreatePost: undefined;
+};
+
+export interface Post {
+    id: string;
+    title: string;
+    content: string;
+    mediaUrls: string[];
+    createdAt: FirebaseFirestoreTypes.Timestamp | null;
+    geohash6: string;
+    geohash5: string;
+    geohash4: string;
 }

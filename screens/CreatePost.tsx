@@ -38,8 +38,14 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
         uploadedUrls.push(downloadUrl);
       }
 
+      // Generare uuid for the post
+      const postId = "post_"+uuid.v4();
+      
+
       // Store post data in Firestore
-      await firestore().collection('posts').add({
+      const postRef = firestore().collection('posts').doc(postId);
+      await postRef.set({
+        id: postId,
         title,
         content,
         mediaUrls: uploadedUrls, // Save all media URLs
