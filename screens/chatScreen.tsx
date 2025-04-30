@@ -24,7 +24,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import ImageViewing from "react-native-image-viewing";
 
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB, CheckAndLoadMessage } from '../helper/databaseHelper';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB, CheckAndLoadMessage, getMessageById } from '../helper/databaseHelper';
 import { DownloadHeader } from '../components/downLoad';
 import RenderMessage from '../components/renderMessage';
 
@@ -41,7 +41,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     sender: string;
     timestamp: number;
     media?: string | null;
-    replyTo?: string | null;
+    replyTo?: {text: string,id:string} | null;
     delivered?: boolean;
     seen?: boolean;
   }
@@ -52,7 +52,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
 
   const [inputText, setInputText] = useState('');
-  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<{text:string,id:string} | null>(null);
   // const [media, setMedia] = useState<string | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList<any>>(null);
@@ -514,12 +514,13 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       if (!currentUser) throw new Error("User not authenticated");
 
       const idToken = await currentUser.getIdToken(); // Get the Firebase ID token
-      console.log(chatId, lastTimestamp);
+      // console.log(chatId, lastTimestamp);
 
       const url = new URL('https://vicinity-backend.onrender.com/messages/sync');
       url.searchParams.append('chatId', chatId);
       url.searchParams.append('limit', '40');
-      url.searchParams.append('before', String(lastTimestamp || 0));
+      url.searchParams.append('before', String(messages[messages.length - 1].timestamp || 0));
+      console.log('fetching before',messages[messages.length-1].timestamp);
 
       console.log('Fetching messages from URL:', url.toString());
 
@@ -556,7 +557,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages, syncMessages]);
+  }, [loadingMore, hasMore, chatId, lastTimestamp, offset, setMessages, syncMessages,messages]);
 
   const onEndReached = () => {
     if (messages.length >= 40) {
@@ -723,6 +724,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     // setMedia(null); // Clear media after sending
     setUploadProgress(0);
     setShowDivider(false);
+    flatListRef.current?.scrollToOffset({ animated: true, offset: 0 });
 
   };
 
@@ -750,19 +752,22 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
   };
 
   const handleReply = (message: Message) => {
-    setReplyTo(message.id);
+    setReplyTo({
+      text: message.text,
+      id: message.id,
+    });
     inputRef.current?.focus();
   };
 
 
 
-  const messageIdToIndexMap = useMemo(() => {
-    const map: { [key: string]: number } = {};
-    messages.forEach((msg, idx) => {
-      map[msg.id] = idx;
-    });
-    return map;
-  }, [messages]);
+  // const messageIdToIndexMap = useMemo(() => {
+  //   const map: { [key: string]: number } = {};
+  //   decoratedMessages.forEach((msg, idx) => {
+  //     map[msg.id] = idx;
+  //   });
+  //   return map;
+  // }, [decoratedMessages]);
 
   const handleDelete = (messageId: string): void => {
     Alert.alert(
@@ -900,11 +905,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
 
   const inputRef = useRef<TextInput>(null);
-  const getTextfromId = (messageId: string) => {
-    const message = messages.find(msg => msg.id === messageId);
-    return message ? message.text : '';
-  };
-
+  
   const MemoizedHeader = useCallback(() => {
     return (
       <DownloadHeader
@@ -918,21 +919,25 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       />);
   }, [selectedMedia, downloadAndSaveToGallery, modalVisible]);
 
-  const waitForMessageIndexInMap = (
+  const getIndex = (
     messageId: string,
-    timeout = 2000,
+    timeout = 5000,
     interval = 100
   ): Promise<number | null> => {
     return new Promise((resolve) => {
       const start = Date.now();
 
       const check = () => {
-        const index = messageIdToIndexMap[messageId];
+        const index = decoratedMessages.findIndex((msg) => msg.id === messageId);
+        // console.log('length',messages.length);
         if (index !== undefined) {
+          console.log('index:', index);
           resolve(index);
         } else if (Date.now() - start >= timeout) {
+          console.log('timeout');
           resolve(null); // fallback after timeout
         } else {
+          console.log('waiting');
           setTimeout(check, interval);
         }
       };
@@ -943,8 +948,10 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
 
   const scrollToMessageById = async (messageId: string) => {
-    const targetIndex = messageIdToIndexMap[messageId];
-    console.log('targetIndex:', targetIndex);
+    const targetIndex = decoratedMessages.findIndex((msg) => msg.id === messageId);
+    // console.log('decorated',decoratedMessages);
+    // console.log('messages',messages);
+    // console.log('targetIndex:', targetIndex);
     if (targetIndex !== undefined) {
       flatListRef.current?.scrollToIndex({
         index: targetIndex,
@@ -959,12 +966,18 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         ToastAndroid.show('Could not find the message', ToastAndroid.SHORT);
         return;
       }
+
+      // let index = -1;
+
       setMessages((prevMessages) => {
         const combined = [...newMessages, ...prevMessages];
+        console.log(combined);
         return combined.sort((a, b) => b.timestamp - a.timestamp) as Message[];
       }
       );
-      const index = await waitForMessageIndexInMap(messageId);
+
+      const index = await getIndex(messageId);
+
       if (index !== null) {
         flatListRef.current?.scrollToIndex({
           index,
@@ -1063,7 +1076,6 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
               currentUserId={currentUserId}
               highlightedMessageId={highlightedMessageId}
               handleScrollToReply={handleScrollToReply}
-              getTextfromId={getTextfromId}
               renderMedia={renderMedia}
               handleMediaPress={handleMediaPress}
               handleLongPress={handleLongPress}
@@ -1125,7 +1137,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
       <View className="px-4 py-3 bg-zinc-900 border-t border-zinc-700">
         {replyTo && (
           <View className="bg-zinc-800 px-4 py-2 border-l-4 border-blue-500 mb-2 relative rounded">
-            <Text className="text-white text-xs">Replying to: {getTextfromId(replyTo)}</Text>
+            <Text className="text-white text-xs">Replying to: {replyTo.text}</Text>
             <TouchableOpacity
               onPress={() => {
                 setReplyTo(null); // Close reply

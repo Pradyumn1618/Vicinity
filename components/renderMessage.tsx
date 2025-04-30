@@ -9,7 +9,7 @@ interface Message {
   sender: string;
   timestamp: number;
   media?: string | null;
-  replyTo?: string | null;
+  replyTo?: {text:string,id:string} | null;
   delivered?: boolean;
   seen?: boolean;
 }
@@ -28,7 +28,6 @@ interface RenderMessageProps {
   currentUserId?: string | null; // The ID of the current user
   highlightedMessageId?: string | null; // The ID of the highlighted message for styling
   handleScrollToReply: (messageId: string) => void; // Function to scroll to the message being replied to
-  getTextfromId: (id: string) => string; // Function to get text of a message by ID (for reply)
   renderMedia: (mediaUrl: string, onPress: () => void) => JSX.Element | null; // Function to render media (image/video)
   handleMediaPress: (mediaUrl: string) => void; // Function to handle media press (e.g., view media)
   handleLongPress: (messageText: string) => void; // Function to handle long press on a message (e.g., copy)
@@ -42,7 +41,6 @@ const RenderMessage = ({
   currentUserId,
   highlightedMessageId,
   handleScrollToReply,
-  getTextfromId,
   renderMedia,
   handleMediaPress,
   handleLongPress,
@@ -81,10 +79,10 @@ const RenderMessage = ({
 
         {item.replyTo && (
           <View className="mb-2">
-            <TouchableOpacity onPress={() => handleScrollToReply(item.replyTo || '')}>
+            <TouchableOpacity onPress={() => handleScrollToReply(item.replyTo.id || '')}>
               <View className="flex-row items-center mb-1">
                 <View className="h-full border-l-2 border-white mr-2" />
-                <Text className="text-white text-xs italic">Reply: {getTextfromId(item.replyTo)}</Text>
+                <Text className="text-white text-xs italic">Reply: {item.replyTo.text}</Text>
               </View>
             </TouchableOpacity>
 
@@ -129,5 +127,8 @@ export default React.memo(RenderMessage, (prevProps, nextProps) => {
   return (
     prevProps.item.id === nextProps.item.id &&
     prevProps.highlightedMessageId === nextProps.highlightedMessageId
+    && prevProps.item.type === 'message' && nextProps.item.type === 'message'
+    && prevProps.item.delivered === nextProps.item.delivered
+    && prevProps.item.seen === nextProps.item.seen
   );
 });

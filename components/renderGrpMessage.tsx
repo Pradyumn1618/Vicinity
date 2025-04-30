@@ -131,5 +131,7 @@ export default React.memo(RenderGroupMessage, (prevProps, nextProps) => {
   return (
     prevProps.item.id === nextProps.item.id &&
     prevProps.highlightedMessageId === nextProps.highlightedMessageId
+    && prevProps.item.type === 'message' && nextProps.item.type === 'message'
+    && prevProps.item.delivered === nextProps.item.delivered
   );
 });
