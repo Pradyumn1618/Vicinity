@@ -30,8 +30,12 @@ module.exports = {
     "@typescript-eslint/no-var-requires": "off",
     "object-curly-spacing": ["off", "always"],
     "max-len": ["off"], // or ["warn", { code: 100 }] for a limit
-    "quotes": ["error", "double"],
     "import/no-unresolved": 0,
     "indent": ["error", 2],
+    'linebreak-style': 'off',
+    'quotes': 'off',
+    'no-trailing-spaces': 'off',
+    '@typescript-eslint/no-explicit-any': 'off',
+    'operator-linebreak': 'off',
   },
 };

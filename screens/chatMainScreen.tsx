@@ -1,5 +1,5 @@
 // Make sure you're using modular imports
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, FlatList, Image, ImageStyle } from 'react-native';
 // import  Ionicons  from  'react-native-vector-icons/Ionicons';
 import { getFirestore, collection, doc, getDoc, getDocs, query, where, onSnapshot } from '@react-native-firebase/firestore';
@@ -11,7 +11,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Modal from 'react-native-modal';
 // import { getDatabase, ref, onValue } from '@react-native-firebase/database';
 import useNearbyOnlineUsers from '../helper/onlineUsers';
-import { insertOrUpdateChatInSQLite, getAllChatsFromSQLite, resetUnreadCount, getGroupUnreadCount } from '../helper/databaseHelper';
+import { insertOrUpdateChatInSQLite, getAllChatsFromSQLite, resetUnreadCount, getGroupUnreadCount, getLatestMessageTimestampsMap } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
@@ -32,7 +32,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const [tab, setTab] = useState('messages'); // Active tab
   const [searchText, setSearchText] = useState(''); // Search input text
   const onlineUsers = useNearbyOnlineUsers(); // Online users
-  const { chats, setChats,groups,setGroups } = useChatContext(); // Direct messages
+  const { chats, setChats, groups, setGroups } = useChatContext(); // Direct messages
   const [isGroupModalVisible, setIsGroupModalVisible] = useState(false); // Modal visibility
   const [searchResults, setSearchResults] = useState<{ id: string; username: string; photoURL?: string }[]>([]); // Search results
 
@@ -151,6 +151,29 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
     }, [setCurrentChatId, setChats, setMessages])
   );
 
+  const [sortedChats, setSortedChats] = useState(chats);
+
+  useEffect(() => {
+    const sortChatsByLatestMessage = async () => {
+
+      const timestampMap = await getLatestMessageTimestampsMap();
+
+      const schats = chats.sort((a, b) => {
+        const timeA = timestampMap[a.id] || 0;
+        const timeB = timestampMap[b.id] || 0;
+        return timeB - timeA;
+      });
+      setSortedChats(schats);
+    };
+
+    if (chats.length > 0) {
+      sortChatsByLatestMessage();
+    } else {
+      setSortedChats([]);
+    }
+  }, [chats]);
+
+
 
   useFocusEffect(
     useCallback(() => {
@@ -159,22 +182,22 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
       const fetchUserGroups = async () => {
         const userId = auth.currentUser?.uid;
         if (!userId) return;
-      
+
         const userRef = doc(db, 'users', userId);
         const userSnap = await getDoc(userRef);
         const userData = userSnap.data();
-      
+
         if (!userData || !userData.groups || userData.groups.length === 0) {
           console.error('❌ User data or groups are missing');
           setGroups([]);
           return;
         }
-      
+
         try {
           const groupPromises = userData.groups.map(async (groupId) => {
             const groupRef = doc(db, 'groups', groupId);
             const docSnap = await getDoc(groupRef);
-      
+
             if (docSnap.exists) {
               const groupData = docSnap.data();
               return {
@@ -187,14 +210,14 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
               return null;
             }
           });
-      
+
           const groupList = (await Promise.all(groupPromises)).filter(Boolean);
           setGroups(groupList);
         } catch (error) {
           console.error('🔥 Error fetching group docs:', error);
         }
       };
-      
+
       fetchUserGroups();
 
       return () => {
@@ -262,7 +285,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   };
   const handleJoinGroup = async (group: { id: string; name: string; photoURL?: string }) => {
     setIsGroupModalVisible(false);
-    if(groups.some(g => g.id === group.id)) {
+    if (groups.some(g => g.id === group.id)) {
       navigation.navigate('GroupChatScreen', { groupId: group.id });
       return;
     }
@@ -471,7 +494,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
       {tab === 'messages' ? (
         <>
           <FlatList
-            data={chats.filter((chat) => chat.username?.toLowerCase().includes(searchText.toLowerCase()))}
+            data={sortedChats.filter((chat) => chat.username?.toLowerCase().includes(searchText.toLowerCase()))}
             className="flex-1"
             showsVerticalScrollIndicator={false}
             keyExtractor={(item) => item.id}
@@ -520,7 +543,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
           </TouchableOpacity>
 
           {/* Search Users Modal */}
-          <Modal isVisible={isSearchUserModalVisible} onBackdropPress={() => {setIsSearchUserModalVisible(false);setSearchText('');setSearchResults([]);}}>
+          <Modal isVisible={isSearchUserModalVisible} onBackdropPress={() => { setIsSearchUserModalVisible(false); setSearchText(''); setSearchResults([]); }}>
             <View style={modalContainerStyle}>
               <Text className="text-black text-lg font-semibold mb-4">Search Users</Text>
               <View style={searchInputWrapperStyle}>
@@ -548,87 +571,87 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
         </>
       ) : (
         <>
-        <FlatList
-          data={groups.filter((group) => group.name?.toLowerCase().includes(searchText.toLowerCase()))}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              onPress={() => navigation.navigate('GroupChatScreen', { groupId: item.id })}
-              className="flex-row items-center p-4 bg-zinc-800 rounded-2xl mb-3"
-            >
-              <Image
-                source={{
-                  uri:
-                    item.photoURL ||
-                    'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg',
-                }}
-                className="w-12 h-12 rounded-full mr-3"
-              />
-              <View className="flex-1">
-                <Text className="text-white font-semibold">{item.name}</Text>
-              </View>
-              <View className="flex-row items-center">
-                {item.unreadCount && item.unreadCount > 0 && (
-                  <View
-                    className="bg-blue-500 rounded-full px-2 py-1"
-                    style={{ backgroundColor: '#4F46E5', borderRadius: 9999 }}
-                  >
-                    <Text className="text-white text-xs">{item.unreadCount}</Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          )}
-        />
-        <TouchableOpacity
-      onPress={() => setIsGroupModalVisible(true)}
-      style={fabStyle}
-    >
-      <Ionicons name="people-outline" size={28} color="white" />
-    </TouchableOpacity>
-
-    {/* Search Groups Modal */}
-    <Modal isVisible={isGroupModalVisible} onBackdropPress={() => setIsGroupModalVisible(false)}>
-      <View style={modalContainerStyle}>
-        <Text className="text-black text-lg font-semibold mb-4">Search Groups</Text>
-        <View style={searchInputWrapperStyle}>
-          <Ionicons name="search" size={20} color="#666" style={{ marginRight: 8 }} />
-          <TextInput
-            placeholder="Search groups..."
-            placeholderTextColor="#999"
-            value={searchGroupText}
-            onChangeText={handleSearchGroups}
-            className="flex-1 text-black"
+          <FlatList
+            data={groups.filter((group) => group.name?.toLowerCase().includes(searchText.toLowerCase()))}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                onPress={() => navigation.navigate('GroupChatScreen', { groupId: item.id })}
+                className="flex-row items-center p-4 bg-zinc-800 rounded-2xl mb-3"
+              >
+                <Image
+                  source={{
+                    uri:
+                      item.photoURL ||
+                      'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg',
+                  }}
+                  className="w-12 h-12 rounded-full mr-3"
+                />
+                <View className="flex-1">
+                  <Text className="text-white font-semibold">{item.name}</Text>
+                </View>
+                <View className="flex-row items-center">
+                  {item.unreadCount && item.unreadCount > 0 && (
+                    <View
+                      className="bg-blue-500 rounded-full px-2 py-1"
+                      style={{ backgroundColor: '#4F46E5', borderRadius: 9999 }}
+                    >
+                      <Text className="text-white text-xs">{item.unreadCount}</Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            )}
           />
-        </View>
-        <FlatList
-          data={groupResults}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity onPress={() => handleJoinGroup(item)} style={userItemStyle}>
-              <Image source={{ uri: item.photoURL }} style={userAvatarStyle} />
-              <Text className="text-black">{item.name}</Text>
-            </TouchableOpacity>
-          )}
-        />
-        <TouchableOpacity
-      onPress={() => {
-        setIsGroupModalVisible(false);
-        navigation.navigate('CreateGroupScreen');
-      }}
-      style={{
-        marginTop: 20,
-        backgroundColor: '#4F46E5',
-        paddingVertical: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-      }}
-    >
-      <Text style={{ color: 'white', fontWeight: 'bold' }}>Create Group</Text>
-    </TouchableOpacity>
-      </View>
-    </Modal>
-  </>
+          <TouchableOpacity
+            onPress={() => setIsGroupModalVisible(true)}
+            style={fabStyle}
+          >
+            <Ionicons name="people-outline" size={28} color="white" />
+          </TouchableOpacity>
+
+          {/* Search Groups Modal */}
+          <Modal isVisible={isGroupModalVisible} onBackdropPress={() => setIsGroupModalVisible(false)}>
+            <View style={modalContainerStyle}>
+              <Text className="text-black text-lg font-semibold mb-4">Search Groups</Text>
+              <View style={searchInputWrapperStyle}>
+                <Ionicons name="search" size={20} color="#666" style={{ marginRight: 8 }} />
+                <TextInput
+                  placeholder="Search groups..."
+                  placeholderTextColor="#999"
+                  value={searchGroupText}
+                  onChangeText={handleSearchGroups}
+                  className="flex-1 text-black"
+                />
+              </View>
+              <FlatList
+                data={groupResults}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity onPress={() => handleJoinGroup(item)} style={userItemStyle}>
+                    <Image source={{ uri: item.photoURL }} style={userAvatarStyle} />
+                    <Text className="text-black">{item.name}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+              <TouchableOpacity
+                onPress={() => {
+                  setIsGroupModalVisible(false);
+                  navigation.navigate('CreateGroupScreen');
+                }}
+                style={{
+                  marginTop: 20,
+                  backgroundColor: '#4F46E5',
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: 'white', fontWeight: 'bold' }}>Create Group</Text>
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        </>
       )}
       {/* <TouchableOpacity
         onPress={() => setIsModalVisible(true)}
@@ -714,14 +737,14 @@ const fabStyle: ViewStyle = {
   elevation: 5,
 };
 
-const modalContainerStyle : ViewStyle = {
+const modalContainerStyle: ViewStyle = {
   backgroundColor: 'white',
   padding: 20,
   borderRadius: 16,
   maxHeight: '80%',
 };
 
-const searchInputWrapperStyle : ViewStyle = {
+const searchInputWrapperStyle: ViewStyle = {
   flexDirection: 'row',
   alignItems: 'center',
   backgroundColor: '#F1F1F1',
@@ -731,7 +754,7 @@ const searchInputWrapperStyle : ViewStyle = {
   marginBottom: 16,
 };
 
-const userItemStyle : ViewStyle = {
+const userItemStyle: ViewStyle = {
   flexDirection: 'row',
   alignItems: 'center',
   paddingVertical: 10,
@@ -739,7 +762,7 @@ const userItemStyle : ViewStyle = {
   borderBottomColor: '#eee',
 };
 
-const userAvatarStyle : ImageStyle = {
+const userAvatarStyle: ImageStyle = {
   width: 40,
   height: 40,
   borderRadius: 20,

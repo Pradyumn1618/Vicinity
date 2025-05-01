@@ -13,6 +13,7 @@ import { NavigationProp } from '@react-navigation/native';
 
 
 
+
 // const user = mmkv.getString('user');
 // const userData = user ? JSON.parse(user) : null;;
 
@@ -44,30 +45,41 @@ const NavigationBar = () => {
   return (
     
       <View className="absolute bottom-5 left-5 right-5 flex-row justify-around bg-zinc-900 py-3 rounded-xl shadow-lg border border-zinc-800" >
-        <TouchableOpacity onPress={() => navigation.navigate('Events')} className="items-center">
+        <TouchableOpacity onPress={() => navigation.navigate('Home')} className="items-center">
+          <Ionicons name="home-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Home</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => navigation.navigate('Search')} className="items-center">
+          <Ionicons name="search-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Search</Text>
+        </TouchableOpacity>
+        
+
+        <TouchableOpacity onPress={handleCreatePost} className="items-center">
+        <Ionicons name="add-circle-outline" size={24} color="white" />
+        <Text className="text-white text-xs mt-1">Create Post</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={() => navigation.navigate('Events')} className="items-center">
           <Ionicons name="newspaper-outline" size={24} color="white" />
           <Text className="text-white text-xs mt-1">Events</Text>
         </TouchableOpacity>
+
+
+        
+
+        {/* <TouchableOpacity onPress={handleLogout} className="items-center">
+          <Ionicons name="log-out-outline" size={24} color="white" />
+          <Text className="text-white text-xs mt-1">Logout</Text>
+        </TouchableOpacity> */}
 
         <TouchableOpacity onPress={() => navigation.navigate('Profile')} className="items-center">
           <Ionicons name="person-outline" size={24} color="white" />
           <Text className="text-white text-xs mt-1">Profile</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate('Inbox')} className="items-center">
-          <Ionicons name="chatbubble-outline" size={24} color="white" />
-          <Text className="text-white text-xs mt-1">Chat</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={handleLogout} className="items-center">
-          <Ionicons name="log-out-outline" size={24} color="white" />
-          <Text className="text-white text-xs mt-1">Logout</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={handleCreatePost} className="items-center">
-        <Ionicons name="add-circle-outline" size={24} color="white" />
-        <Text className="text-white text-xs mt-1">Create Post</Text>
-      </TouchableOpacity>
+        
       </View>
   );
 };

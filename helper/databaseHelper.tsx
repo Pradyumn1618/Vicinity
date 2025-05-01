@@ -21,6 +21,24 @@ export const insertMessage = async (message: Message, chatId: string, receiver: 
     );
 };
 
+export const getLatestMessageTimestampsMap = async (): Promise<Record<string, number>> => {
+    const db = await getDBConnection();
+    const results = await db.executeSql(
+      'SELECT chatId, MAX(timestamp) as last_message_time FROM messages GROUP BY chatId'
+    );
+  
+    const rows = results[0].rows;
+    const timestampMap: Record<string, number> = {};
+  
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows.item(i);
+      timestampMap[row.chatId] = row.last_message_time;
+    }
+  
+    return timestampMap;
+  };
+  
+
 export const getReceiver = async (chatId: string) => {
     const db = await getDBConnection();
     try {

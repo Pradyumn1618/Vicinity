@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   FlatList,
@@ -11,10 +11,16 @@ import {
   Modal,
   TextInput,
   TouchableOpacity,
+  Dimensions,
+  KeyboardAvoidingView,
+  Pressable,
+  TouchableWithoutFeedback,
+  StyleSheet,
 } from 'react-native';
+import { BlurView } from '@react-native-community/blur';
 import { NavigationProp } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
+import firestore, { addDoc, collection, serverTimestamp, getFirestore, getDocs, query, orderBy, doc, setDoc, updateDoc, increment, deleteDoc, getDoc, limit, startAfter } from '@react-native-firebase/firestore';
 import { requestLocationPermission, startLocationTracking } from '../helper/locationPermission';
 import { promptForEnableLocationIfNeeded } from 'react-native-android-location-enabler';
 import NavigationBar from '../components/NavigationBar';
@@ -22,10 +28,16 @@ import mmkv from '../storage';
 import { Post } from '../helper/types';
 import Icon from 'react-native-vector-icons/Feather';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
-
+import Video from 'react-native-video';
+import { EmptyComments, FooterLoader } from '../components/commentsEnd';
+import { useUser } from '../context/userContext';
+import Icon1 from 'react-native-vector-icons/MaterialCommunityIcons';
+import GradientText from '../components/animatedText';
 interface PostScreenProps {
   navigation: NavigationProp<any>;
 }
+
+const db = getFirestore();
 
 const PostScreen = ({ navigation }: PostScreenProps) => {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -34,26 +46,20 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [newComment, setNewComment] = useState<{ [key: string]: string }>({});
+  const [commentCounts, setCommentCounts] = useState({});
   const [comments, setComments] = useState<any[]>([]); // Store comments separately
-  const [user, setUser] = useState<any>(null);
+  // const [user, setUser] = useState<any>(null);
   const [commentLikes, setCommentLikes] = useState<{ [commentId: string]: { liked: boolean, likeCount: number } }>({});
+  const { user } = useUser();
 
   useEffect(() => {
-    const fetchUser = () => {
-      const currentUser = auth().currentUser;
-      if (currentUser) {
-        setUser(currentUser);
-      }
-    };
-
-    fetchUser();
 
     const checkPermission = async () => {
       const hasPermission = await requestLocationPermission();
       if (hasPermission && Platform.OS === 'android') {
         try {
           await promptForEnableLocationIfNeeded();
-          startLocationTracking(user?.uid);
+          startLocationTracking(user?.id);
         } catch (error: unknown) {
           if (error instanceof Error) console.error(error.message);
         }
@@ -86,6 +92,10 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
         id: doc.id,
       }));
       setPosts(fetchedPosts);
+      setCommentCounts(fetchedPosts.reduce((acc, post) => {
+        acc[post.id] = post.commentCount || 0;
+        return acc;
+      }, {}));
     } catch (err) {
       console.error('Error fetching posts:', err);
       Alert.alert('Error', 'Failed to load posts.');
@@ -99,32 +109,28 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   }, []);
 
   // Update like status in Firestore for a comment
-  const likeComment = async (postId: string, commentId: string, liked: boolean) => {
+  const likeComment = async (postId, commentId, liked) => {
     try {
-      const postRef = firestore().collection('posts').doc(postId);
-      const postDoc = await postRef.get();
-      
-      if (postDoc.exists) {
-        const postData = postDoc.data();
-        const updatedComments = postData?.comments.map((comment: any) => {
-          if (comment.id === commentId) {
-            return {
-              ...comment,
-              likeCount: liked
-                ? comment.likeCount + 1
-                : comment.likeCount - 1,
-            };
-          }
-          return comment;
-        });
+      const likeRef = doc(db, 'posts', postId, 'comments', commentId, 'likes', user.id);
+      const commentRef = doc(db, 'posts', postId, 'comments', commentId);
 
-        // Update Firestore with the new like count
-        await postRef.update({
-          comments: updatedComments,
-        });
+      if (liked) {
+        await setDoc(likeRef, { likedAt: Date.now() }); // or serverTimestamp()
+        await updateDoc(commentRef, { likeCount: increment(1) });
+      } else {
+        await deleteDoc(likeRef);
+        await updateDoc(commentRef, { likeCount: increment(-1) });
       }
-    } catch (error) {
-      console.error('Error updating comment like:', error);
+
+      // setCommentLikes((prev) => ({
+      //   ...prev,
+      //   [commentId]: {
+      //     liked,
+      //     likeCount: prev[commentId]?.likeCount ?? 0 + (liked ? 1 : -1),
+      //   },
+      // }));
+    } catch (err) {
+      console.error('Error updating like status:', err);
     }
   };
 
@@ -146,6 +152,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   };
 
   const openComments = (postId: string) => {
+    console.log('Opening comments for post:', postId);
     setSelectedPostId(postId);
     setCommentModalVisible(true);
   };
@@ -155,80 +162,268 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
 
     try {
       const comment = {
-        userId: user?.uid,
-        username: user?.displayName || 'Anonymous',
+        userId: user?.id,
+        username: user?.username || 'Anonymous',
         text: newComment[selectedPostId],
-        likeCount: 0, // Initial like count
-        id: new Date().toISOString(), // Generate unique ID for the comment
+        likeCount: 0,
+        timestamp: serverTimestamp(),
       };
 
-      // Get the current post reference
-      const postRef = firestore().collection('posts').doc(selectedPostId);
-      const postDoc = await postRef.get();
+      // Reference to the subcollection: posts/{postId}/comments
+      const commentRef = collection(db, 'posts', selectedPostId, 'comments');
+      const postRef = doc(db, 'posts', selectedPostId);
+      setDoc(postRef, { commentCount: increment(1) }, { merge: true });
+      await addDoc(commentRef, comment);
 
-      if (postDoc.exists) {
-        const currentComments = postDoc.data()?.comments || [];
 
-        // Add the new comment to the current list of comments
-        const updatedComments = [...currentComments, comment];
-
-        // Update the post with the new comment array and set the timestamp for the post itself
-        await postRef.update({
-          comments: updatedComments,
-          lastCommentTimestamp: firestore.FieldValue.serverTimestamp(),
-        });
-
-        // Clear the comment input after posting
-        setNewComment((prev) => ({ ...prev, [selectedPostId]: '' }));
-        setCommentModalVisible(false);
-      }
+      // Clear input and close modal
+      setNewComment((prev) => ({ ...prev, [selectedPostId]: '' }));
+      setComments((prev) => [
+        ...prev,
+        { ...comment, id: commentRef.id },
+      ]);
+      setCommentCounts((prev) => ({
+        ...prev,
+        [selectedPostId]: (prev[selectedPostId] || 0) + 1,
+      }));
+      // setCommentModalVisible(false);
     } catch (error) {
       console.error('Error posting comment:', error);
     }
   };
 
+  const [lastVisible, setLastVisible] = useState(null); // To store the last visible comment for pagination
+  const [loadingMore, setLoadingMore] = useState(false); // To manage loading state for pagination
+  const [hasMoreComments, setHasMoreComments] = useState(true); // To manage if there are more comments to load
   // Fetch comments and likes when modal is opened
+
+
+
   useEffect(() => {
-    if (selectedPostId) {
-      const fetchPostComments = async () => {
-        try {
-          const postRef = firestore().collection('posts').doc(selectedPostId);
-          const postDoc = await postRef.get();
+    if (!selectedPostId || !user) return;
 
-          if (postDoc.exists) {
-            const postData = postDoc.data();
-            setComments(postData?.comments || []);
-            const initialLikes = postData?.comments.reduce((acc: any, comment: any) => {
-              acc[comment.id] = { liked: false, likeCount: comment.likeCount || 0 };
-              return acc;
-            }, {});
-            setCommentLikes(initialLikes);
-          }
-        } catch (error) {
-          console.error('Error fetching comments:', error);
+    // Reset state before new fetch
+    setComments([]);
+    setCommentLikes({});
+
+    const fetchPostComments = async () => {
+      setLoadingMore(true);
+      console.log('Fetching comments for post:', selectedPostId);
+
+      try {
+        const commentsRef = collection(db, 'posts', selectedPostId, 'comments');
+        let q = query(commentsRef, orderBy('timestamp', 'desc'), limit(20));
+
+        const snapshot = await getDocs(q);
+
+        const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+        if (snapshot.empty || snapshot.docs.length < 20) {
+          setHasMoreComments(false);
         }
-      };
 
-      fetchPostComments();
+        if (lastDoc) {
+          setLastVisible(lastDoc);
+        }
+
+        const results = await Promise.all(
+          snapshot.docs.map(async (docSnap) => {
+            const data = docSnap.data();
+            const commentId = docSnap.id;
+            if (typeof data === 'object' && data !== null) {
+              const likeRef = doc(db, 'posts', selectedPostId, 'comments', commentId, 'likes', user.id);
+              const likeDoc = await getDoc(likeRef);
+              const liked = likeDoc.exists;
+
+              return {
+                comment: { ...data, id: commentId },
+                likeInfo: {
+                  [commentId]: {
+                    liked: liked,
+                    likeCount: data.likeCount || 0,
+                  },
+                },
+              };
+            } else {
+              console.error('Invalid comment data:', data);
+              return null;
+            }
+          })
+        );
+
+        const filtered = results.filter(Boolean); // Remove nulls
+        const commentsList = filtered.map((r) => r.comment);
+        const initialLikes = Object.assign({}, ...filtered.map((r) => r.likeInfo));
+
+        setComments((prev) => [...prev, ...commentsList]);
+        setCommentLikes((prev) => ({ ...prev, ...initialLikes }));
+      } catch (error) {
+        console.error('Error fetching comments:', error);
+      } finally {
+        setLoadingMore(false);
+      }
+    };
+    fetchPostComments();
+
+  }, [selectedPostId, user]);
+
+  const fetchPostComments = async (startAfterDoc = null) => {
+    setLoadingMore(true);
+
+    try {
+      const commentsRef = collection(db, 'posts', selectedPostId, 'comments');
+      let q = query(commentsRef, orderBy('timestamp', 'desc'), limit(20));
+
+      if (startAfterDoc) {
+        q = query(commentsRef, orderBy('timestamp', 'desc'), startAfter(startAfterDoc), limit(20));
+      }
+
+      const snapshot = await getDocs(q);
+
+      const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+      if (snapshot.empty || snapshot.docs.length < 20) {
+        setHasMoreComments(false);
+      }
+
+      if (lastDoc) {
+        setLastVisible(lastDoc);
+      }
+
+      const results = await Promise.all(
+        snapshot.docs.map(async (docSnap) => {
+          const data = docSnap.data();
+          const commentId = docSnap.id;
+
+          if (typeof data === 'object' && data !== null) {
+            const likeRef = doc(db, 'posts', selectedPostId, 'comments', commentId, 'likes', user.id);
+            const likeDoc = await getDoc(likeRef);
+            const liked = likeDoc.exists;
+
+            return {
+              comment: { ...data, id: commentId },
+              likeInfo: {
+                [commentId]: {
+                  liked,
+                  likeCount: data.likeCount || 0,
+                },
+              },
+            };
+          } else {
+            console.error('Invalid comment data:', data);
+            return null;
+          }
+        })
+      );
+
+      const filtered = results.filter(Boolean); // remove nulls
+      const commentsList = filtered.map((r) => r.comment);
+      const initialLikes = Object.assign({}, ...filtered.map((r) => r.likeInfo));
+
+      setComments((prev) => [...prev, ...commentsList]);
+      setCommentLikes((prev) => ({ ...prev, ...initialLikes }));
+
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+    } finally {
+      setLoadingMore(false);
     }
-  }, [selectedPostId]);
+  };
+  const handleEndReached = () => {
+    if (hasMoreComments && !loadingMore) {
+      fetchPostComments(lastVisible);
+    }
+  };
+
+
+  const screenWidth = Dimensions.get('window').width;
+
+
+  const isVideo = (url: string) => {
+    try {
+      const decoded = decodeURIComponent(url);
+      return /\.(m3u8|mp4|mov|webm|avi|mkv)$/i.test(decoded.split('?')[0]);
+    } catch {
+      return false;
+    }
+  };
+
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems?.length > 0) {
+      setCurrentMediaIndex(viewableItems[0].index);
+    }
+  });
+
+  const viewConfigRef = useRef({ viewAreaCoveragePercentThreshold: 50 });
 
   const renderItem = ({ item }: { item: Post }) => (
-    <View className="bg-zinc-800 p-4 mb-4 rounded-lg">
+    <View className="bg-zinc-800 p-4 mb-6 rounded-lg" style={{ minHeight: 420 }}>
       <Text className="text-white text-lg font-semibold mb-1">{item.title}</Text>
       <Text className="text-white mb-2">{item.content}</Text>
-      {item.mediaUrls?.map((url, index) => (
-        <Image
-          key={index}
-          source={{ uri: url }}
-          style={{ width: '100%', height: 200, borderRadius: 8, marginBottom: 10 }}
-          resizeMode="cover"
-        />
-      ))}
-      <Text className="text-zinc-400 text-sm mb-2">
+
+      {item.mediaUrls?.length > 0 && (
+        <>
+          <FlatList
+            data={item.mediaUrls}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(url, index) => `${item.id}-${index}`}
+            renderItem={({ item: url }) =>
+              isVideo(url) ? (
+                <Video
+                  source={{ uri: url }}
+                  style={{
+                    width: screenWidth - 32,
+                    height: 250,
+                    borderRadius: 8,
+                    marginRight: 10,
+                  }}
+                  resizeMode="cover"
+                  paused={true}
+                  controls
+                />
+              ) : (
+                <Image
+                  source={{ uri: url }}
+                  style={{
+                    width: screenWidth - 32,
+                    height: 250,
+                    borderRadius: 8,
+                    marginRight: 10,
+                  }}
+                  resizeMode="cover"
+                />
+              )
+            }
+            onViewableItemsChanged={onViewableItemsChanged.current}
+            viewabilityConfig={viewConfigRef.current}
+          />
+
+          <View className="flex-row justify-center mt-2">
+            {item.mediaUrls.map((_, index) => (
+              <View
+                key={index}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: index === currentMediaIndex ? 'white' : '#555',
+                  marginHorizontal: 4,
+                }}
+              />
+            ))}
+          </View>
+        </>
+      )}
+
+      <Text className="text-zinc-400 text-sm mt-2">
         {item.createdAt?.toDate?.().toLocaleString?.() || 'Just now'}
       </Text>
-      <View className="flex-row justify-between items-center px-1">
+
+      <View className="flex-row justify-between items-center px-1 mt-2">
         <TouchableOpacity onPress={() => toggleLike(item.id, item.id)}>
           <FontAwesome
             name={likedPosts[item.id] ? 'heart' : 'heart-o'}
@@ -236,79 +431,132 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
             color={likedPosts[item.id] ? 'red' : 'white'}
           />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => openComments(item.id)}>
-          <Icon name="message-circle" size={20} color="white" />
-        </TouchableOpacity>
+        <View className="flex-row items-center space-x-2 mt-1">
+          <TouchableOpacity onPress={() => openComments(item.id)}>
+            <Icon name="message-circle" size={18} color="white" />
+          </TouchableOpacity>
+          {commentCounts[item.id] > 0 && (
+            <Text className="text-white text-m">
+              {commentCounts[item.id]}
+            </Text>
+          )}
+        </View>
+
       </View>
     </View>
   );
-
   return (
-    <View className="flex-1 bg-zinc-900">
-      {loading ? (
-        <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color="#ffffff" />
-          <Text className="text-white mt-2">Loading posts...</Text>
+    <View className="flex-1 bg-black">
+      <View className="flex-row items-center justify-between px-4 py-3 border-b border-zinc-800">
+        <View className="flex-1">
+          <GradientText />
         </View>
-      ) : (
-        <FlatList
-          contentContainerStyle={{ padding: 16 }}
-          data={posts}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          ListEmptyComponent={
-            <Text className="text-white text-center mt-10">No posts available in your area.</Text>
-          }
-          refreshing={loading}
-          onRefresh={fetchPosts}
-        />
-      )}
+        <TouchableOpacity onPress={() => navigation.navigate('Inbox')} className="items-center">
+          {/* <Icon name="chatbubble-ellipses-outline" size={24} color="white" /> */}
+          <Icon1 name="chat" size={24} color="white" />
 
-      <NavigationBar navigation={navigation} />
+          {/* <Text className="text-white text-xs mt-1">Chat</Text> */}
+        </TouchableOpacity>
+      </View>
 
-      {/* Comments Modal */}
-      <Modal
-        visible={commentModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setCommentModalVisible(false)}
-      >
-        <View className="flex-1 justify-end bg-black bg-opacity-50">
-          <View className="bg-white p-4 rounded-t-2xl max-h-[80%]">
-            <ScrollView>
-              {comments.map((comment, index) => (
-                <View key={index} className="border-b border-gray-300 py-2">
-                  <Text className="text-black font-semibold">{comment.username}</Text>
-                  <Text className="text-gray-800">{comment.text}</Text>
-                  <View className="flex-row items-center mt-1">
-                    <TouchableOpacity onPress={() => toggleLike(selectedPostId!, comment.id)}>
-                      <FontAwesome
-                        name={commentLikes[comment.id]?.liked ? 'heart' : 'heart-o'}
-                        size={16}
-                        color={commentLikes[comment.id]?.liked ? 'red' : 'black'}
-                      />
-                    </TouchableOpacity>
-                    <Text className="ml-2 text-gray-600">{commentLikes[comment.id]?.likeCount ?? 0}</Text>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-            <TextInput
-              placeholder="Add a comment..."
-              className="border border-gray-400 rounded px-2 py-1 mt-2 text-black"
-              value={newComment[selectedPostId || ''] || ''}
-              onChangeText={(text) => setNewComment((prev) => ({ ...prev, [selectedPostId || '']: text }))}
-            />
-            <TouchableOpacity
-              onPress={postComment}
-              className="bg-blue-500 p-2 rounded mt-2"
-            >
-              <Text className="text-white text-center">Post Comment</Text>
-            </TouchableOpacity>
+      <View className="flex-1 bg-zinc-900">
+        {loading ? (
+          <View className="flex-1 justify-center items-center">
+            <ActivityIndicator size="large" color="#ffffff" />
+            <Text className="text-white mt-2">Loading posts...</Text>
           </View>
-        </View>
-      </Modal>
+        ) : (
+          <>
+            <FlatList
+              contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+              data={posts}
+              keyExtractor={(item) => item.id}
+              renderItem={renderItem}
+              ListEmptyComponent={
+                <Text className="text-white text-center mt-10">No posts available in your area.</Text>
+              }
+              refreshing={loading}
+              onRefresh={fetchPosts}
+            />
+          </>
+        )}
+
+
+        {/* Comments Modal */}
+        <Modal
+          visible={commentModalVisible}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => { setCommentModalVisible(false); setComments([]); setCommentLikes({}); setSelectedPostId(null); }}
+        >
+          <TouchableWithoutFeedback onPress={() => { setCommentModalVisible(false); setComments([]); setCommentLikes({}); setSelectedPostId(null); }}>
+            <View className="flex-1 justify-end">
+              <BlurView
+                style={StyleSheet.absoluteFillObject}
+                blurType="dark"
+                blurAmount={10}
+                reducedTransparencyFallbackColor="rgba(0,0,0,0.5)"
+              />
+
+              <TouchableWithoutFeedback onPress={() => { }}>
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                  className="bg-zinc-900 p-4 rounded-t-2xl max-h-[75%]"
+                  style={{ width: '100%' }}
+                >
+                  <FlatList
+                    data={comments}
+                    keyExtractor={(item) => item.id}
+                    renderItem={({ item }) => {
+                      return (
+                        <View className="border-b border-zinc-700 py-2">
+                          <Text className="text-white font-semibold">{item.username}</Text>
+                          <Text className="text-zinc-300">{item.text}</Text>
+                          <View className="flex-row items-center mt-1">
+                            <TouchableOpacity onPress={() => toggleLike(selectedPostId!, item.id)}>
+                              <FontAwesome
+                                name={commentLikes[item.id]?.liked ? 'heart' : 'heart-o'}
+                                size={16}
+                                color={commentLikes[item.id]?.liked ? 'red' : 'white'}
+                              />
+                            </TouchableOpacity>
+                            <Text className="ml-2 text-zinc-400">
+                              {commentLikes[item.id]?.likeCount ?? 0}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    }}
+                    ListEmptyComponent={EmptyComments}
+                    ListFooterComponent={<FooterLoader loading={loadingMore} />}
+                    onEndReached={handleEndReached}
+                    onEndReachedThreshold={0.5}
+                    keyboardShouldPersistTaps="handled"
+                  />
+                  <TextInput
+                    placeholder="Add a comment..."
+                    placeholderTextColor="#aaa"
+                    className="border border-zinc-600 rounded px-2 py-1 mt-2 text-white"
+                    value={newComment[selectedPostId || ''] || ''}
+                    onChangeText={(text) =>
+                      setNewComment((prev) => ({ ...prev, [selectedPostId || '']: text }))
+                    }
+                  />
+                  <TouchableOpacity
+                    onPress={postComment}
+                    className="bg-blue-500 p-2 rounded mt-2"
+                  >
+                    <Text className="text-white text-center">Post Comment</Text>
+                  </TouchableOpacity>
+                </KeyboardAvoidingView>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+        <NavigationBar navigation={navigation} />
+
+      </View>
     </View>
   );
 };
-export default PostScreen;    
+export default PostScreen;

@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from '@react-native-firebase/auth';
 import auth from  '@react-native-firebase/auth';
-import { getFirestore } from '@react-native-firebase/firestore';
+import { getFirestore,doc, getDoc } from '@react-native-firebase/firestore';
 
 interface UserData {
   id: string;
@@ -31,7 +30,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
         try {
           const docRef = doc(db, 'users', firebaseUser.uid);
           const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
+          if (docSnap.exists) {
             const data = docSnap.data();
             setUser({
               id: firebaseUser.uid,
@@ -39,6 +38,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
               profilePic: data.profilePic,
               geohash: data.geohash,
             });
+            console.log('User data:', data);
           } else {
             console.warn('No user document found');
             setUser(null);
@@ -49,7 +49,9 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
         }
       } else {
         setUser(null);
+        console.log('No user is signed in');
       }
+      console.log('User state changed:', firebaseUser);
       setLoading(false);
     });
 

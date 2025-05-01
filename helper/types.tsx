@@ -37,4 +37,6 @@ export interface Post {
     geohash6: string;
     geohash5: string;
     geohash4: string;
+    commentCount: number;
+    likeCount: number;
 }
