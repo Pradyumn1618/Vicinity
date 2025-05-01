@@ -32,7 +32,6 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
     const [showAddMemberModal, setShowAddMemberModal] = useState(false);
-    const db = getFirestore();
 
     const handleAddUserInput = (username: string) => {
         if (username.trim() !== '') {
@@ -106,6 +105,7 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                 geohashes: [geohash5, geohash4, geohash3],
                 createdBy: username,
                 createdAt: serverTimestamp(),
+                userId: user.uid,
                 allowedUsers: form.public ? [] : allowedUsers,
             };
 

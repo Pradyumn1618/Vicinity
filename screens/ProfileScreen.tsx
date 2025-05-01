@@ -70,7 +70,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                 setPosts(postDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       
                 // Fetch events created by the user
-                const eventsQuery = query(collection(db, "events"), where("userId", "==", currentUser.uid));
+                const eventsQuery = query(collection(db, "Events"), where("userId", "==", currentUser.uid));
                 const eventDocs = await getDocs(eventsQuery);
                 setEvents(eventDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
               } else {
@@ -87,7 +87,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       
           setLoading(true);
           fetchProfileData();
-        }, [currentUser])
+        }, [])
       );
 
       if (loading) {

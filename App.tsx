@@ -16,8 +16,7 @@ import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessa
 import { Buffer } from 'buffer';
 import PushNotification from 'react-native-push-notification';
 import { navigationRef } from './helper/navigationService'; // adjust path
-import { send } from 'process';
-import { set } from 'date-fns';
+import { UserProvider } from './context/userContext';
 
 
 
@@ -343,9 +342,11 @@ const App = () => {
 
   return (
     <>
+    <UserProvider>
       <ChatProvider>
         <AppContent />
       </ChatProvider>
+      </UserProvider>
     </>
   );
 };

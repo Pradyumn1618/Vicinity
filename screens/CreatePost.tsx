@@ -6,6 +6,7 @@ import storage from '@react-native-firebase/storage';
 import firestore from '@react-native-firebase/firestore';
 import uuid from 'react-native-uuid';
 import mmkv from '../storage';
+import { useUser } from '../context/userContext';
 
 interface CreatePostScreenProps {
   navigation: NavigationProp<any>;
@@ -16,6 +17,7 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
   const [content, setContent] = useState('');
   const [mediaUris, setMediaUris] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const {user} = useUser();
 
   const handleCreatePost = async () => {
     if (!title || !content) {
@@ -53,6 +55,9 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
         geohash6: mmkv.getString("geohash"),
         geohash5: mmkv.getString("geohash").substring(0,5),
         geohash4: mmkv.getString("geohash").substring(0,4),
+        userId: user.id,
+        username: user.username,
+        profilePic: user.profilePic
       });
 
       Alert.alert('Success', 'Post created successfully!');
