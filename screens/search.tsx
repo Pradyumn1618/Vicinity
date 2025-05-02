@@ -4,7 +4,7 @@ import { getFirestore, collection, query, where, orderBy, startAt, endAt, getDoc
 import { useUser } from '../context/userContext';
 import { Image } from 'react-native';
 
-const SearchPage = () => {
+const SearchPage = ({navigation}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredUsers, setFilteredUsers] = useState([]);
     const { user } = useUser();
@@ -62,7 +62,8 @@ const SearchPage = () => {
         data={filteredUsers}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <TouchableOpacity style={{ padding: 15, backgroundColor: '#2e2e2e', marginBottom: 10, borderRadius: 8 }}>
+          <TouchableOpacity onPress={()=> {navigation.navigate('UserProfile', {userId:item.id})}}
+          style={{ padding: 15, backgroundColor: '#2e2e2e', marginBottom: 10, borderRadius: 8 }}>
             <Image style={{ width: 50, height: 50, borderRadius: 25 }} source={{ uri: item.profilePic }} />
             <Text style={{ color: '#bbb', fontSize: 14 }}>{item.username}</Text>
           </TouchableOpacity>

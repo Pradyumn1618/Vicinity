@@ -1,190 +1,133 @@
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  Image,
-  FlatList,
-  ActivityIndicator,
-  TouchableOpacity,
-} from 'react-native';
-import {
-  getFirestore,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-} from '@react-native-firebase/firestore';
-import { RouteProp, useRoute, NavigationProp } from '@react-navigation/native';
-
-interface UserProfileScreenProps {
-  navigation: NavigationProp<any>;
-}
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, Image, FlatList, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
+import firestore from '@react-native-firebase/firestore';
+import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import PostList from './PostList';
+import EventList from './EventList';
+import { Post, Event } from '../helper/types';
 
 type RouteParams = {
-  UserProfile: {
-    userId: string;
-  };
+  userId: string;
 };
 
-const UserProfileScreen = ({ navigation }: UserProfileScreenProps) => {
-  const route = useRoute<RouteProp<RouteParams, 'UserProfile'>>();
-  const { userId } = route.params;
+const UserProfileScreen = () => {
+  const route = useRoute<RouteProp<Record<string, RouteParams>, string>>();
+  const userId = route.params.userId;
 
   const [userData, setUserData] = useState<any>(null);
-  const [posts, setPosts] = useState<any[]>([]);
-  const [events, setEvents] = useState<any[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'posts' | 'events'>('posts');
+  const [lastPost, setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
+  const [lastEvent, setLastEvent] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
 
-  useEffect(() => {
-    const fetchUserProfile = async () => {
-      try {
-        const db = getFirestore();
+    useEffect( () => {
+      const fetchData = async () => {
+        try {
+          const userDoc = await firestore().collection('users').doc(userId).get();
+          if (userDoc.exists) {
+            setUserData(userDoc.data());
 
-        const userRef = doc(db, 'users', userId);
-        const userSnap = await getDoc(userRef);
+            const [postDocs, eventDocs] = await Promise.all([
+              firestore()
+                .collection('posts')
+                .where('userId', '==', userId)
+                .orderBy('createdAt', 'desc')
+                .limit(10)
+                .get(),
+              firestore()
+                .collection('Events')
+                .where('userId', '==', userId)
+                .orderBy('dateTime', 'desc')
+                .limit(10)
+                .get(),
+            ]);
 
-        if (userSnap) {
-          const user = userSnap.data();
-          setUserData(user);
-
-          const postsQuery = query(collection(db, 'posts'), where('userId', '==', userId));
-          const postDocs = await getDocs(postsQuery);
-          setPosts(postDocs.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-
-          const eventsQuery = query(collection(db, 'events'), where('userId', '==', userId));
-          const eventDocs = await getDocs(eventsQuery);
-          setEvents(eventDocs.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-        } else {
-          console.warn('User not found');
+            setPosts(postDocs.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post)));
+            setEvents(eventDocs.docs.map(doc => ({ id: doc.id, ...doc.data() } as Event)));
+            if (postDocs.docs.length > 0) setLastPost(postDocs.docs[postDocs.docs.length - 1]);
+            if (eventDocs.docs.length > 0) setLastEvent(eventDocs.docs[eventDocs.docs.length - 1]);
+          }
+        } catch (err) {
+          console.error("Error loading user profile:", err);
+        } finally {
+          setLoading(false);
         }
-      } catch (err) {
-        console.error('Error fetching user profile:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+      };
 
-    fetchUserProfile();
-  }, [userId]);
+      fetchData();
+    }, [userId]);
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#0000ff" />
-      </View>
-    );
-  }
-
-  if (!userData) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: 'white' }}>User not found</Text>
-      </View>
-    );
+    return <ActivityIndicator style={{ marginTop: 50 }} />;
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000', padding: 16 }}>
-      <View style={{ alignItems: 'center', marginBottom: 20 }}>
-        <TouchableOpacity
-          onPress={ () =>
-            navigation.navigate('FullProfile',{
-                profilePic: userData.profilePic,
-                username: userData.username,
-            })
+      {userData && (
+        <View style={{ alignItems: 'center', marginBottom: 20 }}>
+          <Image
+            source={
+              userData.profilePic
+                ? { uri: userData.profilePic }
+                : { uri: 'https://img.freepik.com/placeholder.jpg' }
+            }
+            style={{ width: 96, height: 96, borderRadius: 48 }}
+          />
+          <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold', marginTop: 10 }}>
+            {userData.username || 'No username'}
+          </Text>
+          <Text style={{ fontSize: 14, color: 'gray' }}>{userData.bio || 'No bio available'}</Text>
+        </View>
+      )}
 
-
-          }
-        >
-
-        <Image
-          source={{
-              uri:
-              userData.profilePic ||
-              'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg',
-            }}
-            style={{
-                width: 96,
-                height: 96,
-                borderRadius: 48,
-            }}
-            />
-            </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: 'bold', color: 'white', marginTop: 10 }}>
-          {userData.username}
-        </Text>
-        <Text style={{ fontSize: 14, color: 'gray' }}>{userData.bio || 'No bio available'}</Text>
-      </View>
-
-      {/* Tab Switcher */}
       <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16 }}>
         <TouchableOpacity
           onPress={() => setActiveTab('posts')}
           style={{
             flex: 1,
-            backgroundColor: activeTab === 'posts' ? '#007bff' : '#444',
+            backgroundColor: activeTab === 'posts' ? '#007bff' : '#ccc',
             padding: 10,
             borderTopLeftRadius: 10,
             borderBottomLeftRadius: 10,
             alignItems: 'center',
           }}
         >
-          <Text style={{ color: activeTab === 'posts' ? '#fff' : '#ccc' }}>Posts</Text>
+          <Text style={{ color: activeTab === 'posts' ? '#fff' : '#000' }}>Posts</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => setActiveTab('events')}
           style={{
             flex: 1,
-            backgroundColor: activeTab === 'events' ? '#007bff' : '#444',
+            backgroundColor: activeTab === 'events' ? '#007bff' : '#ccc',
             padding: 10,
             borderTopRightRadius: 10,
             borderBottomRightRadius: 10,
             alignItems: 'center',
           }}
         >
-          <Text style={{ color: activeTab === 'events' ? '#fff' : '#ccc' }}>Events</Text>
+          <Text style={{ color: activeTab === 'events' ? '#fff' : '#000' }}>Events</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Render Posts or Events */}
-      <FlatList
-        data={activeTab === 'posts' ? posts : events}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View
-            style={{
-              padding: 10,
-              borderWidth: 1,
-              borderColor: '#333',
-              marginBottom: 10,
-              borderRadius: 8,
-              backgroundColor: '#111',
-            }}
-          >
-            <Text style={{ fontSize: 16, fontWeight: 'bold', color: 'white' }}>
-              {item.title || item.name}
-            </Text>
+      {activeTab === 'posts' && (
+        posts.length > 0 ? (
+          <PostList initialPosts={posts} lastP={lastPost} userId={userId} />
+        ) : (
+          <Text style={{ color: 'white', textAlign: 'center', marginTop: 20 }}>No posts yet.</Text>
+        )
+      )}
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-              <Text style={{ color: 'gray' }}>
-                Likes: {item.likes?.length || 0}
-              </Text>
-              <Text style={{ color: 'gray' }}>
-                Comments: {item.comments?.length || 0}
-              </Text>
-            </View>
-          </View>
-        )}
-        ListEmptyComponent={
-          <Text style={{ textAlign: 'center', color: 'gray' }}>
-            No {activeTab === 'posts' ? 'posts' : 'events'} to show.
-          </Text>
-        }
-      />
+      {activeTab === 'events' && (
+        events.length > 0 ? (
+          <EventList initialEvents={events} lastE={lastEvent} userId={userId} />
+        ) : (
+          <Text style={{ color: 'white', textAlign: 'center', marginTop: 20 }}>No events yet.</Text>
+        )
+      )}
     </View>
   );
 };

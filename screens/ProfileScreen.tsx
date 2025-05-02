@@ -213,7 +213,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     
         { activeTab === 'posts' ? (
           posts.length > 0 ?  ( 
-            <PostList initialPosts={posts} lastP={lastPost}/>
+            <PostList initialPosts={posts} lastP={lastPost} userId={userData.uid}/>
         ) : (
           <Text style={{ color: 'white', textAlign: 'center', marginTop: 20 }}>No posts yet.</Text>
         )
@@ -221,7 +221,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
         {activeTab === 'events' ? (
           events.length > 0 ? (
-            <EventList initialEvents={events} lastE={lastEvent} />
+            <EventList initialEvents={events} lastE={lastEvent} userId={userData.uid} />
           ) : (
             <Text style={{ color: 'white', textAlign: 'center', marginTop: 20 }}>No events yet.</Text>
           )

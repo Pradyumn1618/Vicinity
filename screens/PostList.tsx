@@ -10,12 +10,13 @@ import { Post } from '../helper/types';
 interface PostListProps {
   initialPosts: Post[],
   lastP: FirebaseFirestoreTypes.DocumentSnapshot,
+  userId: string;
 }
 
 const { width } = Dimensions.get('window');
 
-const PostList = ( {initialPosts,lastP} : PostListProps) => {
-  const currentUser = auth().currentUser;
+const PostList = ( {initialPosts,lastP, userId } : PostListProps) => {
+  // const currentUser = auth().currentUser;
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [lastPost, setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(lastP);
   const [loading, setLoading] = useState(true);
@@ -23,21 +24,21 @@ const PostList = ( {initialPosts,lastP} : PostListProps) => {
   const [noMorePosts, setNoMorePosts] = useState(initialPosts.length < 10);
 
   const fetchPosts = useCallback(async (loadMore = false) => {
-    if (!currentUser || loadingMore || (loadMore && noMorePosts)) return;
+    if (!userId || loadingMore || (loadMore && noMorePosts)) return;
 
     loadMore ? setLoadingMore(true) : setLoading(true);
 
     try {
       let query = firestore()
         .collection('posts')
-        .where('userId', '==', currentUser.uid)
+        .where('userId', '==', userId)
         .orderBy('createdAt', 'desc')
         .limit(10);
 
       if (loadMore && lastPost) {
         query = firestore()
         .collection('posts')
-        .where('userId', '==', currentUser.uid)
+        .where('userId', '==', userId)
         .orderBy('createdAt', 'desc').startAfter(lastPost)
         .limit(10);
       }
@@ -58,7 +59,7 @@ const PostList = ( {initialPosts,lastP} : PostListProps) => {
     } finally {
       loadMore ? setLoadingMore(false) : setLoading(false);
     }
-  }, [currentUser, lastPost, loadingMore, noMorePosts]);
+  }, [userId, lastPost, loadingMore, noMorePosts]);
 
   useEffect(() => {
     if(initialPosts.length == 0){
