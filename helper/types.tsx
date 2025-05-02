@@ -19,6 +19,7 @@ export type rootStackParamList = {
             profilePic: string;
             username: string;
             status: string;
+            id: string;
         };
     };
     GroupChatScreen: {groupId:string};

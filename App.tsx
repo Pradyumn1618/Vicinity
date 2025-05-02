@@ -6,7 +6,7 @@ import NetInfo from '@react-native-community/netinfo';
 import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import { SocketProvider } from './helper/socketProvider';
 import auth from '@react-native-firebase/auth';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, StackActions } from '@react-navigation/native';
 // import { rootStackParamList } from './helper/types';
 import InAppNotification from './components/inAppNotification';
 import { getDBConnection, createTables } from './config/database';
@@ -97,10 +97,10 @@ const AppContent = () => {
         const sender = remoteMessage.data?.sender ?? '';
         const chatId = remoteMessage.data?.customKey ?? '';
         console.log(chatId, sender);
-        navigationRef.navigate('ChatScreen', { chatId, receiver: sender });
+        navigationRef.dispatch(StackActions.replace('ChatScreen', { chatId, receiver: sender }));
       } else if (user && navigationRef.isReady() && remoteMessage.data?.purpose === 'group-message') {
         const groupId = remoteMessage.data?.customKey ?? '';
-        navigationRef.navigate('GroupChatScreen', { groupId });
+        navigationRef.dispatch(StackActions.replace('GroupChatScreen', { groupId }));
       }
     });
 

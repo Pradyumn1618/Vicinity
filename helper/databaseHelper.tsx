@@ -15,11 +15,28 @@ interface Message {
 
 export const insertMessage = async (message: Message, chatId: string, receiver: string): Promise<void> => {
     const db = await getDBConnection();
+  
+    const replyToId = message.replyTo?.id ?? null;
+    const replyToText = message.replyTo?.text ?? null;
+  
     await db.executeSql(
-        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media,replyToId,replyToText,timestamp,delivered,seen) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-        [message.id, chatId, message.sender, receiver, message.text, message.media ?? null, message.replyTo?.id ?? null,message.replyTo?.text ?? null, message.timestamp, message.delivered, message.seen]
+      'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media, replyToId, replyToText, timestamp, delivered, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        message.id,
+        chatId,
+        message.sender,
+        receiver,
+        message.text,
+        message.media ?? null,
+        replyToId,
+        replyToText,
+        message.timestamp,
+        message.delivered ?? 0,
+        message.seen ?? 0
+      ]
     );
-};
+  };
+  
 
 export const getLatestMessageTimestampsMap = async (): Promise<Record<string, number>> => {
     const db = await getDBConnection();
@@ -64,19 +81,33 @@ export const getMessages = async (chatId: string, limit: number, offset: number 
     const rows = results[0].rows;
     const messages = [];
     for (let i = 0; i < rows.length; i++) {
-        const message = {
+        let message: {
+            id: any;
+            sender: any;
+            text: any;
+            media: any;
+            timestamp: any;
+            delivered: any;
+            seen: any;
+            replyTo: { id: any; text: any } | null;
+        } = {
             id: rows.item(i).id,
             sender: rows.item(i).sender,
             text: rows.item(i).text,
             media: rows.item(i).media,
-            replyTo: {
-                text: rows.item(i).replyToText,
-                id: rows.item(i).replyToId
-            },
             timestamp: rows.item(i).timestamp,
             delivered: rows.item(i).delivered,
             seen: rows.item(i).seen,
+            replyTo: null,
         };
+        if (rows.item(i).replyToId && rows.item(i).replyToText) {
+            message.replyTo = {
+                id: rows.item(i).replyToId,
+                text: rows.item(i).replyToText
+            };
+        } else {
+            message.replyTo = null;
+        }
         messages.push(message);
         }
     return messages;
