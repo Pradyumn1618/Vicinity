@@ -12,6 +12,8 @@ type ChatContextType = {
   setGroups: React.Dispatch<React.SetStateAction<any[]>>;
   groupMessages: GrpMessage[];
   setGroupMessages: React.Dispatch<React.SetStateAction<GrpMessage[]>>;
+  unreadChats: number;
+  setUnreadChats: React.Dispatch<React.SetStateAction<number>>;
 };
 
 type ChatPreview = {
@@ -55,6 +57,8 @@ const ChatContext = createContext<ChatContextType>({
     setGroups: () => {},
     groupMessages: [],
     setGroupMessages: () => {},
+    unreadChats: 0,
+    setUnreadChats: () => {},
 });
 
 
@@ -70,9 +74,10 @@ export const ChatProvider = ({ children }: ChatProviderProps) => {
   const [chats, setChats] = useState<ChatPreview[]>([]);
   const [groups, setGroups] = useState<any[]>([]); // Define the type for groups if needed
   const [groupMessages, setGroupMessages] = useState<GrpMessage[]>([]);
+  const [unreadChats, setUnreadChats] = useState<number>(0);
 
   return (
-    <ChatContext.Provider value={{ currentChatId, setCurrentChatId, messages, setMessages, chats, setChats, groups, setGroups, groupMessages, setGroupMessages }}>
+    <ChatContext.Provider value={{ currentChatId, setCurrentChatId, messages, setMessages, chats, setChats, groups, setGroups, groupMessages, setGroupMessages, unreadChats, setUnreadChats }}>
       {children}
     </ChatContext.Provider>
   );

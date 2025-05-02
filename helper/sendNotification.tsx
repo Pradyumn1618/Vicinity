@@ -61,7 +61,7 @@ export const sendDMNotification = async (fcmTokens: string[], message) => {
   }
 }
 
-export const sendDeleteNotification = async (fcmTokens: string[], messageId: string) => {
+export const sendDeleteNotification = async (fcmTokens: string[], messageId: string,chatId:string) => {
   if (fcmTokens.length === 0) return;
   try {
     const res = await sendDataNotification({
@@ -69,6 +69,7 @@ export const sendDeleteNotification = async (fcmTokens: string[], messageId: str
       data: {
         'purpose': 'delete',
         'customKey': String(messageId),
+        'chatId': String(chatId),
       }
     });
     console.log("Notification sent:", res.data);

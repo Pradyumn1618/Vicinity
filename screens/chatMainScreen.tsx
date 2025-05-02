@@ -106,6 +106,10 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
         unsubscribeFirestore = onSnapshot(chatsQuery, async (snapshot) => {
           const localChatMap = new Map(localChats?.map((chat) => [chat.id, chat]));
 
+          for (const [key, value] of localChatMap) {
+            console.log('Chat ID:', key, 'Chat Data:', value);
+          }          
+
           const chatList = await Promise.all(
             snapshot.docs.map(async (d) => {
               const data = d.data();

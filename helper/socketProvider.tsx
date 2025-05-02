@@ -5,8 +5,9 @@ import firestore from '@react-native-firebase/firestore';
 import { AppState } from 'react-native';
 import socket from '../config/socket';
 import { createContext, useContext } from 'react';
-import { insertMessage, incrementUnreadCount, deleteMessage, decrementUnreadCount, setSeenMessages, incrementGroupUnreadCount, decrementGroupUnreadCount } from '../helper/databaseHelper';
+import { insertMessage, incrementUnreadCount, deleteMessage, decrementUnreadCount, setSeenMessages, incrementGroupUnreadCount, decrementGroupUnreadCount, getAllChatsFromSQLite } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
+import { set } from 'date-fns';
 
 const SocketContext = createContext(socket);
 
@@ -67,7 +68,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         if (currentChatId === chatId) {
           setMessages((prev: Message[]) => prev.filter((message) => message.id !== messageId));
         } else {
-          decrementUnreadCount(chatId);
+          // decrementUnreadCount(chatId);
           setChats((prevChats) =>
             prevChats.map((chat) => {
               if (chat.id === chatId) {
@@ -124,7 +125,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         } else {
           console.log('Received message in background');
 
-          await incrementUnreadCount(msg.chatId);
+          // await incrementUnreadCount(msg.chatId);
           setChats((prevChats) =>
             prevChats.map((chat) => {
               if (chat.id === msg.chatId) {
@@ -154,7 +155,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         } else {
           console.log('Received group message in background',msg);
 
-          incrementGroupUnreadCount(msg.groupId);
+          // incrementGroupUnreadCount(msg.groupId);
           setGroups((prevChats) =>
             prevChats.map((chat) => {
               if (chat.id === msg.groupId) {
@@ -176,7 +177,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         if (currentChatId === groupId) {
           setGroupMessages((prev: GrpMessage[]) => prev.filter((message) => message.id !== messageId));
         } else {
-          decrementGroupUnreadCount(groupId);
+          // decrementGroupUnreadCount(groupId);
           setGroups((prevChats) =>
             prevChats.map((chat) => {
               if (chat.id === groupId) {

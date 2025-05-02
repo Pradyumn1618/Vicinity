@@ -12,7 +12,7 @@ import InAppNotification from './components/inAppNotification';
 import { getDBConnection, createTables } from './config/database';
 import { ChatProvider } from './context/chatContext';
 import { useChatContext } from './context/chatContext';
-import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessage, decrementUnreadCount, syncOfflineDeletions, incrementGroupUnreadCount } from './helper/databaseHelper';
+import { getAllChatsFromSQLite, incrementUnreadCount, deleteMessage, insertMessage, decrementUnreadCount, syncOfflineDeletions, incrementGroupUnreadCount, getUnreadCount, getGroupUnreadCount } from './helper/databaseHelper';
 import { Buffer } from 'buffer';
 import PushNotification from 'react-native-push-notification';
 import { navigationRef } from './helper/navigationService'; // adjust path
@@ -21,12 +21,13 @@ import { doc, getFirestore, onSnapshot } from '@react-native-firebase/firestore'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import mmkv from './storage';
 import { Provider } from 'react-native-paper';
+import { set } from 'date-fns';
 
 
 global.Buffer = Buffer;
 
 const AppContent = () => {
-  const { setChats, currentChatId } = useChatContext();
+  const { setChats, currentChatId,setUnreadChats } = useChatContext();
 
   interface NotificationData {
     title: string;
@@ -120,15 +121,24 @@ const AppContent = () => {
             seen: remoteMessage.data.seen,
           }
           await insertMessage(message, remoteMessage.data.customKey, remoteMessage.data.receiver);
-          incrementUnreadCount(remoteMessage.data.customKey);
+          await incrementUnreadCount(remoteMessage.data.customKey);
+          const unreadCount = await getUnreadCount(remoteMessage.data.customKey);
+          if(unreadCount === 1) {
+            setUnreadChats((prev) => prev + 1);
+          }
           return;
         }
         if (!remoteMessage.notification && remoteMessage.data) {
           if (remoteMessage.data.purpose === 'delete') {
             const messageId = remoteMessage.data?.customKey;
+            const chatId = remoteMessage.data?.chatId;
             if (messageId) {
               await deleteMessage(messageId);
-              decrementUnreadCount(messageId);
+              await decrementUnreadCount(chatId);
+              const unreadCount = await getUnreadCount(chatId);
+              if(unreadCount === 0) {
+                setUnreadChats((prev) => prev - 1);
+              }
               console.log('Message deleted:', messageId);
             } else {
               console.log('No message ID provided for deletion');
@@ -137,7 +147,11 @@ const AppContent = () => {
           }
         }
         if (remoteMessage.notification && remoteMessage.data?.purpose === 'group-message') {
-          incrementGroupUnreadCount(remoteMessage.data.customKey);
+          await incrementGroupUnreadCount(remoteMessage.data.customKey);
+          const unreadCount = await getGroupUnreadCount(remoteMessage.data.customKey);
+          if(unreadCount === 1) {
+            setUnreadChats((prev) => prev + 1);
+          }
           return;
         }
       }
@@ -164,7 +178,7 @@ const AppContent = () => {
       unsubscribeOpenedApp();
       appStateListener.remove();
     };
-  }, [setChats]);
+  }, [setChats, setUnreadChats]);
 
   useEffect(() => {
     if (currentChatId) {
@@ -229,6 +243,11 @@ const AppContent = () => {
           chatId: data.customKey ?? '',
           sender: data.sender ?? '',
         });
+        await incrementUnreadCount(data.customKey);
+        const unreadCount = await getUnreadCount(data.customKey);
+        if(unreadCount === 1) {
+          setUnreadChats((prev) => prev + 1);
+        }
 
         return;
       } else if (purpose === 'delete') {
@@ -236,6 +255,11 @@ const AppContent = () => {
         const messageId = remoteMessage.data?.customKey;
         if (messageId) {
           await deleteMessage(messageId);
+          await decrementUnreadCount(remoteMessage.data.chatId);
+          const unreadCount = await getUnreadCount(remoteMessage.data.chatId);
+          if(unreadCount === 0) {
+            setUnreadChats((prev) => prev - 1);
+          }
           console.log('Message deleted:', messageId);
         } else {
           console.log('No message ID provided for deletion');
@@ -253,6 +277,11 @@ const AppContent = () => {
             body: remoteMessage.notification?.body || 'You have a new group message.',
             groupId: groupId ?? '',
           });
+          await incrementGroupUnreadCount(groupId);
+          const unreadCount = await getGroupUnreadCount(groupId);
+          if(unreadCount === 1) {
+            setUnreadChats((prev) => prev + 1);
+          }
         }
         return;
       }
@@ -263,7 +292,7 @@ const AppContent = () => {
     });
 
     return () => unsubscribe();
-  }, [currentChatId]);
+  }, [currentChatId,setUnreadChats]);
 
   // 5. Handle notification press for local notifications
   useEffect(() => {
@@ -334,20 +363,32 @@ const AppContent = () => {
           seen: remoteMessage.data.seen,
         }
         await insertMessage(message, remoteMessage.data.customKey, remoteMessage.data.receiver);
-        incrementUnreadCount(remoteMessage.data.customKey);
+        await incrementUnreadCount(remoteMessage.data.customKey);
+        const unreadCount = await getUnreadCount(remoteMessage.data.customKey);
+        if(unreadCount === 1) {
+          setUnreadChats((prev) => prev + 1);
+        }
         return;
       } else if (remoteMessage.data.purpose === 'delete') {
         const messageId = remoteMessage.data?.customKey;
         if (messageId) {
           await deleteMessage(messageId);
-          decrementUnreadCount(remoteMessage.data.customKey);
+          await decrementUnreadCount(remoteMessage.data.customKey);
+          const unreadCount = await getUnreadCount(remoteMessage.data.customKey);
+          if(unreadCount === 0) {
+            setUnreadChats((prev) => prev - 1);
+          }
           console.log('Message deleted:', messageId);
         } else {
           console.log('No message ID provided for deletion');
         }
         return;
       } else if (remoteMessage.data.purpose === 'group-message') {
-        incrementGroupUnreadCount(remoteMessage.data.customKey);
+        await incrementGroupUnreadCount(remoteMessage.data.customKey);
+        const unreadCount = await getGroupUnreadCount(remoteMessage.data.customKey);
+        if(unreadCount === 1) {
+          setUnreadChats((prev) => prev + 1);
+        }
         return;
       }
     }

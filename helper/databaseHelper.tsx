@@ -7,7 +7,7 @@ interface Message {
     sender: string;
     text: string;
     media?: string | null;
-    replyTo?: {text:string,id:string} | null;
+    replyTo?: { text: string, id: string } | null;
     timestamp: number;
     delivered?: boolean;
     seen?: boolean;
@@ -15,46 +15,46 @@ interface Message {
 
 export const insertMessage = async (message: Message, chatId: string, receiver: string): Promise<void> => {
     const db = await getDBConnection();
-  
+
     const replyToId = message.replyTo?.id ?? null;
     const replyToText = message.replyTo?.text ?? null;
-  
+
     await db.executeSql(
-      'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media, replyToId, replyToText, timestamp, delivered, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        message.id,
-        chatId,
-        message.sender,
-        receiver,
-        message.text,
-        message.media ?? null,
-        replyToId,
-        replyToText,
-        message.timestamp,
-        message.delivered ?? 0,
-        message.seen ?? 0
-      ]
+        'INSERT OR REPLACE INTO messages (id, chatId, sender, receiver, text, media, replyToId, replyToText, timestamp, delivered, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            message.id,
+            chatId,
+            message.sender,
+            receiver,
+            message.text,
+            message.media ?? null,
+            replyToId,
+            replyToText,
+            message.timestamp,
+            message.delivered ?? 0,
+            message.seen ?? 0
+        ]
     );
-  };
-  
+};
+
 
 export const getLatestMessageTimestampsMap = async (): Promise<Record<string, number>> => {
     const db = await getDBConnection();
     const results = await db.executeSql(
-      'SELECT chatId, MAX(timestamp) as last_message_time FROM messages GROUP BY chatId'
+        'SELECT chatId, MAX(timestamp) as last_message_time FROM messages GROUP BY chatId'
     );
-  
+
     const rows = results[0].rows;
     const timestampMap: Record<string, number> = {};
-  
+
     for (let i = 0; i < rows.length; i++) {
-      const row = rows.item(i);
-      timestampMap[row.chatId] = row.last_message_time;
+        const row = rows.item(i);
+        timestampMap[row.chatId] = row.last_message_time;
     }
-  
+
     return timestampMap;
-  };
-  
+};
+
 
 export const getReceiver = async (chatId: string) => {
     const db = await getDBConnection();
@@ -109,7 +109,7 @@ export const getMessages = async (chatId: string, limit: number, offset: number 
             message.replyTo = null;
         }
         messages.push(message);
-        }
+    }
     return messages;
 };
 
@@ -119,16 +119,18 @@ export const incrementUnreadCount = async (chatId: string) => {
     console.log('Incrementing unread count for chatId (db function):', chatId);
 
     // Check if entry exists
-    await db.executeSql(
-        'UPDATE unread_counts SET count = count + 1 WHERE chatId = ?',
-        [chatId]
-    );
-
-    // If no row was updated, insert new one
-    await db.executeSql(
-        'INSERT INTO unread_counts (chatId, count) SELECT ?, 1 WHERE NOT EXISTS (SELECT 1 FROM unread_counts WHERE chatId = ?)',
-        [chatId, chatId]
-    );
+    try {
+        await db.executeSql(
+            `
+            INSERT INTO unread_counts (chatId, count)
+            VALUES (?, 1)
+            ON CONFLICT(chatId) DO UPDATE SET count = count + 1
+            `,
+            [chatId]
+        );
+    } catch (error) {
+        console.log('Error incrementing unread count:', error);
+    }
 };
 
 export const incrementGroupUnreadCount = async (groupId: string) => {
@@ -178,15 +180,15 @@ export const resetGroupUnreadCount = async (groupId: string) => {
 
 export const setGroupUnreadTimestamp = async (groupId: string, timestamp: number) => {
     const db = await getDBConnection();
-    try{
-    console.log('Setting unread timestamp for groupId:', groupId);
-    await db.executeSql(
-        'INSERT OR REPLACE INTO groupUnreadCounts (groupId, UnreadTimestamp) VALUES (?, ?)',
-        [groupId, timestamp]
-    );
-}catch(error){
-    console.log(error.message);
-}
+    try {
+        console.log('Setting unread timestamp for groupId:', groupId);
+        await db.executeSql(
+            'INSERT OR REPLACE INTO groupUnreadCounts (groupId, UnreadTimestamp) VALUES (?, ?)',
+            [groupId, timestamp]
+        );
+    } catch (error) {
+        console.log(error.message);
+    }
     console.log('Set unread timestamp for groupId:', groupId);
 }
 
@@ -251,20 +253,34 @@ export const getUnreadCount = async (chatId: string) => {
 
 export const getAllChatsFromSQLite = async (userId: string) => {
     const db = await getDBConnection();
-    const results = await db.executeSql(
-        'SELECT * FROM chats WHERE participants LIKE ?', [`%${userId}%`]
-    );
-    const chats = [];
-    for (let i = 0; i < results[0].rows.length; i++) {
-        chats.push(results[0].rows.item(i));
+  
+    try {
+      const results = await db.executeSql(
+        `
+        SELECT chats.*, IFNULL(unread_counts.count, 0) AS unreadCount
+        FROM chats
+        LEFT JOIN unread_counts ON chats.id = unread_counts.chatId
+        WHERE chats.participants LIKE ?
+        `,
+        [`%${userId}%`]
+      );
+  
+      const chats = [];
+      const rows = results[0].rows;
+  
+      for (let i = 0; i < rows.length; i++) {
+        const chat = rows.item(i);
+        chat.participants = JSON.parse(chat.participants);
+        chat.unreadCount = chat.unreadCount ?? 0;
+        chats.push(chat);
+      }
+  
+      return chats;
+    } catch (error) {
+      console.error('Error fetching chats:', error);
+      return [];
     }
-    for (let i = 0; i < chats.length; i++) {
-        const unreadCount = await getUnreadCount(chats[i].id);
-        chats[i].unreadCount = unreadCount;
-        chats[i].participants = JSON.parse(chats[i].participants);
-    }
-    return chats;
-};
+  };
 
 export const insertOrUpdateChatInSQLite = async (chat: {
     id: string;
@@ -395,7 +411,7 @@ export const getLocalMessages = async (chatId: string, beforeTimestamp: number, 
     }
 };
 
-export const insertIntoDeletedGroupMessages = async (messageId: string, groupId:string) => {
+export const insertIntoDeletedGroupMessages = async (messageId: string, groupId: string) => {
     const db = await getDBConnection();
     try {
         await db.executeSql(
@@ -562,7 +578,7 @@ export const syncDeletedGroupMessages = async () => {
     }
 }
 
-export const getMediaFromLocalDB = async (chatId:string,offset: number=0, limit: number) => {
+export const getMediaFromLocalDB = async (chatId: string, offset: number = 0, limit: number) => {
     const db = await getDBConnection();
     try {
         const results = await db.executeSql(
@@ -581,7 +597,7 @@ export const getMediaFromLocalDB = async (chatId:string,offset: number=0, limit:
     }
 }
 
-export const filterMessagesDB = async (searchText:string='',chatId:string) => {
+export const filterMessagesDB = async (searchText: string = '', chatId: string) => {
     const db = await getDBConnection();
     try {
         const results = await db.executeSql(
@@ -613,12 +629,12 @@ export const filterMessagesDB = async (searchText:string='',chatId:string) => {
     }
 }
 
-export const getMessagesBetweenTimeRange = async (chatId:string,timestampHigh:number,timestampLow:number) => {
+export const getMessagesBetweenTimeRange = async (chatId: string, timestampHigh: number, timestampLow: number) => {
     const db = await getDBConnection();
     try {
         const results = await db.executeSql(
             'SELECT * FROM messages WHERE chatId = ? AND timestamp < ? AND timestamp >= ? ORDER BY timestamp DESC',
-            [chatId, timestampHigh,timestampLow ]
+            [chatId, timestampHigh, timestampLow]
         );
         const rows = results[0].rows;
         const messages = [];
@@ -645,11 +661,11 @@ export const getMessagesBetweenTimeRange = async (chatId:string,timestampHigh:nu
     }
 }
 
-export const CheckAndLoadMessage = async (chatId:string,messageId:string,timestamp:number) => {
-    const messageRef = fdb.collection('chats').doc(chatId).collection('messages').doc(messageId);   
+export const CheckAndLoadMessage = async (chatId: string, messageId: string, timestamp: number) => {
+    const messageRef = fdb.collection('chats').doc(chatId).collection('messages').doc(messageId);
     const messageSnap = await messageRef.get();
     if (messageSnap.exists) {
-        const messages = await getMessagesBetweenTimeRange(chatId,timestamp,messageSnap.data()?.timestamp);
+        const messages = await getMessagesBetweenTimeRange(chatId, timestamp, messageSnap.data()?.timestamp);
         if (messages.length > 0) {
             console.log('Messages loaded successfully from SQLite');
             return messages;
@@ -663,7 +679,7 @@ export const CheckAndLoadMessage = async (chatId:string,messageId:string,timesta
     }
 }
 
-const getGroupMessagesBetweenTimeRange = async (groupId:string,timestampHigh:number,timestampLow:number) => {
+const getGroupMessagesBetweenTimeRange = async (groupId: string, timestampHigh: number, timestampLow: number) => {
     const messageRef = fdb.collection('groups').doc(groupId).collection('messages');
     const messages = await messageRef.where('timestamp', '<=', timestampHigh).where('timestamp', '>=', timestampLow).orderBy('timestamp', 'desc').get();
     const messagesArray = [];
@@ -677,11 +693,11 @@ const getGroupMessagesBetweenTimeRange = async (groupId:string,timestampHigh:num
     return messagesArray;
 }
 
-export const CheckAndLoadGroupMessage = async (groupId:string,messageId:string,timestamp:number) => {
-    const messageRef = fdb.collection('groups').doc(groupId).collection('messages').doc(messageId);   
+export const CheckAndLoadGroupMessage = async (groupId: string, messageId: string, timestamp: number) => {
+    const messageRef = fdb.collection('groups').doc(groupId).collection('messages').doc(messageId);
     const messageSnap = await messageRef.get();
     if (messageSnap.exists) {
-        const messages = await getGroupMessagesBetweenTimeRange(groupId,timestamp,messageSnap.data()?.timestamp);
+        const messages = await getGroupMessagesBetweenTimeRange(groupId, timestamp, messageSnap.data()?.timestamp);
         if (messages.length > 0) {
             console.log('Messages loaded successfully from SQLite');
             return messages;
@@ -695,14 +711,15 @@ export const CheckAndLoadGroupMessage = async (groupId:string,messageId:string,t
     }
 }
 
-export const syncMessages = async (token:string) => {    
+export const syncMessages = async (token: string) => {
     try {
-        const messages = await fetch('https://vicinity-backend.onrender.com/all-messages',{
+        const messages = await fetch('https://vicinity-backend.onrender.com/all-messages', {
             method: 'GET',
             headers: {
                 Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
-        }});
+            }
+        });
         const messagesData = await messages.json();
         if (messagesData && messagesData.length > 0) {
             for (const message of messagesData) {

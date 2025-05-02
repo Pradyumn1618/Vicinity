@@ -38,7 +38,7 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
     await db.executeSql(`
     CREATE TABLE IF NOT EXISTS unread_counts (
   chatId TEXT PRIMARY KEY,
-  count INTEGER,
+  count INTEGER DEFAULT 0,
   UnreadTimestamp INTEGER,
   FOREIGN KEY (chatId) REFERENCES chats(id) ON DELETE CASCADE
 );
@@ -66,7 +66,7 @@ export const createTables = async (db: SQLite.SQLiteDatabase) => {
   await db.executeSql(
     `CREATE TABLE IF NOT EXISTS groupUnreadCounts (
     groupId TEXT PRIMARY KEY,
-    count INTEGER,
+    count INTEGER DEFAULT 0,
     UnreadTimestamp INTEGER
   );`
   );

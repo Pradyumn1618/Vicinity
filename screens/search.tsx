@@ -3,6 +3,7 @@ import { View, TextInput, FlatList, TouchableOpacity, Text } from 'react-native'
 import { getFirestore, collection, query, where, orderBy, startAt, endAt, getDocs } from '@react-native-firebase/firestore';
 import { useUser } from '../context/userContext';
 import { Image } from 'react-native';
+import NavigationBar from '../components/NavigationBar';
 
 const SearchPage = ({navigation}) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -69,6 +70,7 @@ const SearchPage = ({navigation}) => {
           </TouchableOpacity>
         )}
       />
+      <NavigationBar navigation={navigation} />
     </View>
   );
 };

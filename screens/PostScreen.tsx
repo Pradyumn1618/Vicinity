@@ -37,6 +37,7 @@ import Icon1 from 'react-native-vector-icons/MaterialCommunityIcons';
 import GradientText from '../components/animatedText';
 import { refreshFcmToken } from '../helper/locationPermission';
 import { Menu, Provider } from "react-native-paper";
+import { useChatContext } from '../context/chatContext';
 
 
 interface PostScreenProps {
@@ -58,6 +59,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   const [commentLikes, setCommentLikes] = useState<{ [commentId: string]: { liked: boolean, likeCount: number } }>({});
   const { user } = useUser();
   const [isSwiping, setIsSwiping] = useState(false);
+  const {unreadChats} = useChatContext();
 
 
   useEffect(() => {
@@ -86,6 +88,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
       checkAuthentication();
     }, [checkAuthentication])
   );
+
 
   useEffect(() => {
 
@@ -128,6 +131,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
       }, 200);
     });
   };
+
 
   const fetchPosts = useCallback(async () => {
     try {

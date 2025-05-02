@@ -464,7 +464,11 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
       if (cachedMessages && cachedMessages.length > 0) {
         setMessages(cachedMessages);
+        if(cachedMessages.length < MESSAGES_PAGE_SIZE){
+          setLastTimestamp(0);
+        }else{
         setLastTimestamp(cachedMessages[cachedMessages.length - 1].timestamp);
+        }
         if (cachedMessages.length < MESSAGES_PAGE_SIZE) {
           setHasMore(false);
 
@@ -843,7 +847,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
         console.error('Message does not exist in Firestore');
       }
       setShowDivider(false);
-      sendDeleteNotification([receiverDetails?.fcmToken], messageId);
+      sendDeleteNotification([receiverDetails?.fcmToken], messageId,chatId);
     } catch (error) {
       console.error('Error deleting message or media:', error);
     }

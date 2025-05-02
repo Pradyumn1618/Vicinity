@@ -11,6 +11,7 @@ import CreateEventModal from '../components/CreateEventModal'; // Import the new
 import auth from '@react-native-firebase/auth';
 import { ToastAndroid } from 'react-native';
 import { Event } from '../helper/types';
+import NavigationBar from '../components/NavigationBar';
 
 
 const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
@@ -332,6 +333,9 @@ const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
           }
         />
       )}
+
+      <NavigationBar navigation={navigation} />
+
     </View>
   );
 };
