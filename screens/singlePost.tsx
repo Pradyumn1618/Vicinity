@@ -1,16 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ActivityIndicator, FlatList, Image, TouchableOpacity, Dimensions, TextInput } from 'react-native';
+import { View, Text, ActivityIndicator, FlatList, Image, TouchableOpacity, Dimensions, TextInput, StyleSheet } from 'react-native';
 import { useFocusEffect, useRoute } from '@react-navigation/native';
-import { doc, getDoc, getFirestore, setDoc, collection, getDocs, addDoc, query, orderBy, limit, startAfter, serverTimestamp } from '@react-native-firebase/firestore';
+import { doc, getDoc, getFirestore, setDoc, collection, getDocs, addDoc, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, updateDoc, increment } from '@react-native-firebase/firestore';
 import Video from 'react-native-video';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import { useUser } from '../context/userContext';
-import { set } from 'date-fns';
 import mmkv from '../storage';
 
 const db = getFirestore();
 
-const IndividualPostScreen = ({navigation}) => {
+const IndividualPostScreen = ({ navigation }) => {
     const route = useRoute();
     const { user } = useUser();
     const { postId } = route.params;
@@ -30,27 +29,31 @@ const IndividualPostScreen = ({navigation}) => {
     const [hasMoreReplies, setHasMoreReplies] = useState({});
     const [replyTo, setReplyTo] = useState(null);
     const [visibleReplies, setVisibleReplies] = useState({});
-    const [replyText, setReplyText] = useState('');
+    // const [replyText, setReplyText] = useState('');
     const [replyVisible, setReplyVisible] = useState(false);
+    const [replyText, setReplyText] = useState({});
+    const [commentLikes, setCommentLikes] = useState({});
+
+
 
     const checkAuthentication = React.useCallback(() => {
         if (!mmkv.getString('user')) {
-          // Use reset instead of navigate to remove the current screen from the stack
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Login' }],
-          });
+            // Use reset instead of navigate to remove the current screen from the stack
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+            });
         }
-      }, [navigation]);
-      useEffect(() => {
+    }, [navigation]);
+    useEffect(() => {
         checkAuthentication();
-      }, [checkAuthentication]);
-      // Check authentication every time the screen gains focus
-      useFocusEffect(
+    }, [checkAuthentication]);
+    // Check authentication every time the screen gains focus
+    useFocusEffect(
         React.useCallback(() => {
-          checkAuthentication();
+            checkAuthentication();
         }, [checkAuthentication])
-      );
+    );
 
 
     const screenWidth = Dimensions.get('window').width;
@@ -102,7 +105,19 @@ const IndividualPostScreen = ({navigation}) => {
                     })
                 );
 
-                setComments(prev => [...prev, ...commentsData]);
+                setComments(commentsData);
+                const updatedLikes = {};
+
+                for (const comment of commentsData) {
+                    const likeRef = doc(db, 'posts', postId, 'comments', comment.id, 'likes', user.id);
+                    const likeDoc = await getDoc(likeRef);
+                    updatedLikes[comment.id] = {
+                        liked: likeDoc.exists,
+                        count: comment.likeCount || 0,
+                    };
+                }
+
+                setCommentLikes(prev => ({ ...prev, ...updatedLikes }));
                 if (!commentSnap.empty) {
                     setLastCommentDoc(commentSnap.docs[commentSnap.docs.length - 1]);
                 }
@@ -114,6 +129,8 @@ const IndividualPostScreen = ({navigation}) => {
         fetchPost();
         fetchComments();
     }, [postId, user.id]);
+
+
 
     const fetchMoreComments = async () => {
         if (!lastCommentDoc) return;
@@ -133,6 +150,16 @@ const IndividualPostScreen = ({navigation}) => {
             );
 
             setComments(prev => [...prev, ...commentsData]);
+            const updatedLikes = {};
+            for (const comment of commentsData) {
+                const likeRef = doc(db, 'posts', postId, 'comments', comment.id, 'likes', user.id);
+                const likeDoc = await getDoc(likeRef);
+                updatedLikes[comment.id] = {
+                    liked: likeDoc.exists,
+                    count: comment.likeCount || 0,
+                };
+            }
+            setCommentLikes(prev => ({ ...prev, ...updatedLikes }));
             if (commentSnap.docs.length === 20) {
                 setLastCommentDoc(commentSnap.docs[commentSnap.docs.length - 1]);
             } else {
@@ -164,6 +191,38 @@ const IndividualPostScreen = ({navigation}) => {
         }
     };
 
+
+    const toggleCommentLike = async (commentId) => {
+        const current = commentLikes[commentId];
+        const likeRef = doc(db, 'posts', postId, 'comments', commentId, 'likes', user.id);
+        const commentRef = doc(db, 'posts', postId, 'comments', commentId);
+
+        if (current?.liked) {
+            await deleteDoc(likeRef);
+            await updateDoc(commentRef, {
+                likeCount: increment(-1),
+            });
+            setCommentLikes(prev => ({
+                ...prev,
+                [commentId]: {
+                    liked: false,
+                    count: Math.max(0, prev[commentId].count - 1),
+                },
+            }));
+        } else {
+            await setDoc(likeRef, { liked: true });
+            await updateDoc(commentRef, {
+                likeCount: increment(1),
+            });
+            setCommentLikes(prev => ({
+                ...prev,
+                [commentId]: {
+                    liked: true,
+                    count: (prev[commentId]?.count || 0) + 1,
+                },
+            }));
+        }
+    };
 
 
     const fetchReplies = async (commentId) => {
@@ -214,13 +273,13 @@ const IndividualPostScreen = ({navigation}) => {
     };
 
     const addReply = async (commentId) => {
-        if (!reply.trim()) return;
+        if (!replyText[commentId].trim()) return;
         try {
             const repliesRef = collection(db, 'posts', postId, 'comments', commentId, 'replies');
             const replyData = {
                 userId: user?.id,
                 username: user?.username || 'Anonymous',
-                text: reply,
+                text: replyText[commentId],
                 timestamp: serverTimestamp(),
             };
             setReplies(prev => ({
@@ -243,105 +302,268 @@ const IndividualPostScreen = ({navigation}) => {
         }
     };
 
-    if (isLoading) {
-        return <ActivityIndicator size="large" color="#fff" />;
-    }
+    // if (isLoading) {
+    //     return <ActivityIndicator size="large" color="#fff" />;
+    // }
 
     return (
-        <View className="bg-zinc-800 py-4 px-2 mb-6 rounded-lg flex-1">
-            <Text className="text-white text-lg font-semibold mb-1">{post.title}</Text>
-            <Text className="text-white mb-2">{post.content}</Text>
-
-            {post.mediaUrls?.length > 0 && (
-                <>
-                    <FlatList
-                        data={post.mediaUrls}
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        keyExtractor={(url, index) => `${post.id}-${index}`}
-                        renderItem={({ item: url }) =>
-                            isVideo(url) ? (
-                                <Video source={{ uri: url }} style={{ width: screenWidth - 10, height: 250 }} resizeMode="cover" paused={false} controls />
-                            ) : (
-                                <Image source={{ uri: url }} style={{ width: screenWidth - 10, height: 250 }} resizeMode="cover" />
-                            )
-                        }
-                        onViewableItemsChanged={onViewableItemsChanged.current}
-                        viewabilityConfig={viewConfigRef.current}
-                    />
-                </>
-            )}
-
-            <Text className="text-zinc-400 text-sm mt-2">{post.createdAt?.toDate?.().toLocaleString?.() || 'Just now'}</Text>
-
-            <View className="flex-row justify-between items-center px-1 mt-2">
-                <TouchableOpacity onPress={toggleLike}>
-                    <FontAwesome name={liked ? 'heart' : 'heart-o'} size={20} color={liked ? 'red' : 'white'} />
-                    {likeCount > 0 && <Text className="text-white text-m">{likeCount}</Text>}
-                </TouchableOpacity>
-                <View className="flex-row items-center space-x-2 mt-1">
-                    <FontAwesome name="comment-o" size={20} color="white" />
-                    {commentCount > 0 && <Text className="text-white text-m">{commentCount}</Text>}
+        <View className="bg-zinc-800 py-4 px-2 flex-1">
+            {isLoading ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color="#fff" />
                 </View>
-            </View>
-
-            <View className="mt-4">
-                <TextInput
-                    placeholder="Add a comment..."
-                    placeholderTextColor="#aaa"
-                    value={commentInput}
-                    onChangeText={setCommentInput}
-                    onSubmitEditing={addComment}
-                    className="text-white border border-zinc-600 rounded px-3 py-2"
-                />
-            </View>
-
-            <FlatList
-                data={comments}
-                keyExtractor={(item) => item.id}
-                onEndReached={fetchMoreComments}
-                onEndReachedThreshold={0.5}
-                renderItem={({ item: comment }) => (
-                    <View className="border-t border-zinc-700 mt-2 pt-2">
-                        <Text className="text-white">{comment.text}</Text>
-
-                        <TouchableOpacity onPress={() => setReplyTo(comment.id)}>
-                            <Text className="text-blue-400 text-xs mt-1">Reply</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity onPress={() => fetchReplies(comment.id)}>
-                            <Text className="text-blue-400 text-xs mt-1">
-                                {replies[comment.id] ? 'Hide replies' : 'View replies'}
+            ) : (
+                <>
+                    <TouchableOpacity onPress={() => navigation.navigate('UserProfile', { userId: post.userId })}>
+                        <View className="flex-row items-center mb-3">
+                            <Image
+                                source={{ uri: post.profilePic || 'https://via.placeholder.com/40' }}
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 18,
+                                    marginRight: 10,
+                                    borderWidth: 1,
+                                    borderColor: '#3f3f46',
+                                }}
+                            />
+                            <Text style={{ color: '#e4e4e7', fontSize: 15, fontWeight: '600' }}>
+                                {post.username || 'Anonymous'}
                             </Text>
-                        </TouchableOpacity>
+                        </View>
+                    </TouchableOpacity>
 
-                        {replyTo === comment.id && (
-                            <View className="mt-2">
-                                <TextInput
-                                    placeholder="Write a reply..."
-                                    placeholderTextColor="#999"
-                                    value={reply}
-                                    onChangeText={setReply}
-                                    className="border border-zinc-600 text-white p-2 rounded"
-                                />
-                                <TouchableOpacity onPress={addReply} className="mt-1">
-                                    <Text className="text-green-400 text-sm">Send</Text>
-                                </TouchableOpacity>
+                    <Text className="text-white text-lg font-semibold mb-1">{post.title}</Text>
+                    <Text className="text-white mb-2">{post.content}</Text>
+
+                    {post.mediaUrls?.length > 0 && (
+                        <>
+                            <FlatList
+                                data={post.mediaUrls}
+                                horizontal
+                                pagingEnabled
+                                showsHorizontalScrollIndicator={false}
+                                keyExtractor={(url, index) => `${post.id}-${index}`}
+                                renderItem={({ item: url }) =>
+                                    isVideo(url) ? (
+                                        <Video source={{ uri: url }} style={{ width: screenWidth - 10, height: 'auto' }} resizeMode="cover" paused={false} controls />
+                                    ) : (
+                                        <Image source={{ uri: url }} style={{ width: screenWidth - 10, height: 'auto' }} resizeMode="cover" />
+                                    )
+                                }
+                                onViewableItemsChanged={onViewableItemsChanged.current}
+                                viewabilityConfig={viewConfigRef.current}
+                            />
+                        </>
+                    )}
+
+                    <Text className="text-zinc-400 text-sm mt-2">{post.createdAt?.toDate?.().toLocaleString?.() || 'Just now'}</Text>
+
+                    <View className="flex-row justify-between items-center px-1 mt-2 mb-4">
+                        <TouchableOpacity onPress={toggleLike}>
+                            <View className="flex-row items-center">
+                                <FontAwesome name={liked ? 'heart' : 'heart-o'} size={20} color={liked ? 'red' : 'white'} />
+                                <Text className="text-white text-lg ml-2">{likeCount}</Text>
+                            </View>
+
+                        </TouchableOpacity>
+                        <View className="flex-row items-center space-x-2 mt-1">
+                            <FontAwesome name="comment-o" size={20} color="white" />
+                            {commentCount > 0 && <Text className="text-white text-lg ml-2">{commentCount}</Text>}
+                        </View>
+                    </View>
+
+                    <FlatList
+                        data={comments}
+                        keyExtractor={item => item.id}
+                        renderItem={({ item: comment }) => (
+                            <View style={styles.commentContainer}>
+
+                                {/* Like button in top-right */}
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                    <Text style={styles.username}>{comment.username}</Text>
+                                    <TouchableOpacity onPress={() => toggleCommentLike(comment.id)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <FontAwesome
+                                            name={commentLikes[comment.id]?.liked ? 'heart' : 'heart-o'}
+                                            size={16}
+                                            color={commentLikes[comment.id]?.liked ? 'red' : 'white'}
+                                        />
+                                        <Text style={{ color: 'white', marginLeft: 4, fontSize: 12 }}>
+                                            {commentLikes[comment.id]?.count || 0}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Comment text */}
+                                <Text style={styles.commentText}>{comment.text}</Text>
+
+                                {/* Action row: Reply and View Replies */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                                    <TouchableOpacity onPress={() => setReplyTo(comment.id)} style={{ marginRight: 20 }}>
+                                        <Text style={styles.replyButton}>Reply</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => {
+                                        if (replies[comment.id]) {
+                                            setReplies(prev => ({ ...prev, [comment.id]: undefined }));
+                                        } else {
+                                            fetchReplies(comment.id);
+                                        }
+                                    }}>
+                                        <Text style={styles.replyButton}>
+                                            {replies[comment.id] ? 'Hide replies' : 'View replies'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Reply input */}
+                                {replyTo === comment.id && (
+                                    <View style={styles.replyInputContainer}>
+                                        <TextInput
+                                            style={styles.replyInput}
+                                            value={replyText[comment.id] || ''}
+                                            onChangeText={text => setReplyText(prev => ({ ...prev, [comment.id]: text }))}
+                                            placeholder="Write a reply..."
+                                        />
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                addReply(comment.id);
+                                                setReplyText(prev => ({ ...prev, [comment.id]: '' }));
+                                                setReplyTo(null);
+                                            }}
+                                        >
+                                            <Text style={styles.replySend}>Send</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+
+                                {/* Replies */}
+                                {replies[comment.id] && (
+                                    <View style={styles.repliesContainer}>
+                                        {replies[comment.id].map(reply => (
+                                            <Text key={reply.id} style={styles.replyText}>
+                                                <Text style={{ fontWeight: 'bold' }}>{reply.username}: </Text>
+                                                {reply.text}
+                                            </Text>
+                                        ))}
+                                    </View>
+                                )}
                             </View>
                         )}
 
-                        {/* Replies, if visible */}
-                        {replies[comment.id]?.map(reply => (
-                            <View key={reply.id} className="ml-4 mt-1">
-                                <Text className="text-zinc-300 text-sm">↳ {reply.text}</Text>
-                            </View>
-                        ))}
+
+                        onEndReached={fetchMoreComments}
+                    />
+                    <View style={styles.addCommentContainer}>
+                        <TextInput
+                            style={styles.commentInput}
+                            value={commentInput}
+                            onChangeText={setCommentInput}
+                            placeholder="Add a comment..."
+                        />
+                        <TouchableOpacity onPress={addComment}>
+                            <Text style={styles.commentSend}>Send</Text>
+                        </TouchableOpacity>
                     </View>
-                )}
-            />
+                </>
+            )}
         </View>
     );
 };
 
 export default IndividualPostScreen;
+
+const styles = StyleSheet.create({
+    commentContainer: {
+        backgroundColor: '#27272a', // dark gray bg
+        borderRadius: 10,
+        padding: 10,
+        marginVertical: 6,
+        marginHorizontal: 8,
+        shadowColor: '#000',
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    commentHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    username: {
+        fontWeight: 'bold',
+        color: '#e4e4e7',
+        fontSize: 15,
+    },
+    commentText: {
+        color: '#f4f4f5',
+        fontSize: 15,
+        marginTop: 4,
+        marginBottom: 8,
+        lineHeight: 20,
+    },
+    replyButton: {
+        color: '#60a5fa', // blue-400
+        fontSize: 13,
+        marginRight: 16,
+    },
+    replyInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+        marginLeft: 16,
+    },
+    replyInput: {
+        flex: 1,
+        backgroundColor: '#1f2937', // dark input background
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#4b5563',
+        padding: 8,
+        fontSize: 14,
+        color: 'white',
+        marginRight: 8,
+    },
+    replySend: {
+        color: '#3b82f6', // blue-500
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    repliesContainer: {
+        marginTop: 8,
+        paddingLeft: 14,
+        marginLeft: 10,
+        borderLeftWidth: 2,
+        borderLeftColor: '#3f3f46',
+    },
+    replyText: {
+        color: '#d4d4d8',
+        fontSize: 14,
+        marginBottom: 10,
+        lineHeight: 18,
+    },
+    addCommentContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+        borderTopWidth: 1,
+        borderColor: '#3f3f46',
+        backgroundColor: '#18181b',
+    },
+    commentInput: {
+        flex: 1,
+        backgroundColor: '#1f2937',
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#4b5563',
+        padding: 10,
+        fontSize: 15,
+        color: 'white',
+        marginRight: 10,
+    },
+    commentSend: {
+        color: '#60a5fa',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+});
+

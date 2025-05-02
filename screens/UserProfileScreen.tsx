@@ -6,14 +6,17 @@ import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import PostList from './PostList';
 import EventList from './EventList';
 import { Post, Event } from '../helper/types';
+import { useUser } from '../context/userContext';
+import Navigation from '../navigation';
 
 type RouteParams = {
   userId: string;
 };
 
-const UserProfileScreen = () => {
+const UserProfileScreen = ({navigation}) => {
   const route = useRoute<RouteProp<Record<string, RouteParams>, string>>();
   const userId = route.params.userId;
+  const { user } = useUser();
 
   const [userData, setUserData] = useState<any>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -22,6 +25,12 @@ const UserProfileScreen = () => {
   const [activeTab, setActiveTab] = useState<'posts' | 'events'>('posts');
   const [lastPost, setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
   const [lastEvent, setLastEvent] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
+
+  useEffect(() => {
+    if(userId === user.id){
+      navigation.replace('Profile');
+    }
+  },[userId, user,navigation]);
 
     useEffect( () => {
       const fetchData = async () => {
