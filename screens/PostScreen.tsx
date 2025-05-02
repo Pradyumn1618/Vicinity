@@ -37,8 +37,7 @@ import Icon1 from 'react-native-vector-icons/MaterialCommunityIcons';
 import GradientText from '../components/animatedText';
 import { refreshFcmToken } from '../helper/locationPermission';
 import { Menu, Provider } from "react-native-paper";
-import { set } from 'date-fns';
-
+import { useIsFocused } from '@react-navigation/native';
 interface PostScreenProps {
   navigation: NavigationProp<any>;
 }
@@ -67,6 +66,8 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   const [replyText, setReplyText] = useState<{ [commentId: string]: string }>({});
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
   const [likeCounts, setLikeCounts] = useState<{ [postId: string]: { liked: boolean, likeCount: number } }>({});
+
+  const isFocused = useIsFocused();
 
   useEffect(() => {
     if (user) {
@@ -563,7 +564,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
                     source={{ uri: url }}
                     style={styles.media}
                     resizeMode="cover"
-                    paused={currentMediaIndex !== index}
+                    paused={currentMediaIndex !== index || !isFocused}
                     controls
                   />
                 ) : (
