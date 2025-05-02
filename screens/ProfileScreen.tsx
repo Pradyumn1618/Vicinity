@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, Image, FlatList, ActivityIndicator, Button, TouchableOpacity } from 'react-native';
-import { getFirestore, collection, doc, getDoc, getDocs, query, where } from "@react-native-firebase/firestore";
+import { getFirestore, collection, doc, getDoc, getDocs, query, where, orderBy, limit, FirebaseFirestoreTypes } from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { NavigationProp,useFocusEffect } from '@react-navigation/native';
 import mmkv from '../storage';
 import PostList from './PostList';
+import EventList from './EventList';
+import { Post } from '../helper/types';
+import { Event } from '../helper/types';
 
 interface ProfileScreenProps {
     navigation: NavigationProp<any>;
@@ -15,84 +18,107 @@ const currentUser = auth().currentUser;
 
 const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     const [userData, setUserData] = useState<any>(null);
-    const [posts, setPosts] = useState<{ id: string; [key: string]: any }[]>([]);
-    const [events, setEvents] = useState<{ id: string; [key: string]: any }[]>([]);
+    const [posts, setPosts] = useState<Post[]>([]);
+    const [events, setEvents] = useState<Event[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'posts' | 'events'>('posts');
+    const [lastEvent, setLastEvent] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
+    const [lastPost,setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
     
-
-    const checkAuthentication = React.useCallback(() => {
-        const user = mmkv.getString('user');
-        console.log('MMKV user:', user);
-        if (!user) {
-          // Use reset instead of navigate to remove the current screen from the stack
+    useFocusEffect(
+      useCallback(() => {
+        const localUser = mmkv.getString('user');
+        if (!localUser) {
           setTimeout(() => {
             navigation.reset({
               index: 0,
               routes: [{ name: 'Login' }],
             });
           }, 500);
+          return;
         }
-      }, [navigation]);
-
-      useEffect(() => {
-        checkAuthentication();
-      }, [checkAuthentication]);
-      
-      // Check authentication every time the screen gains focus
-      useFocusEffect(
-        React.useCallback(() => {
-          checkAuthentication();
-        }, [checkAuthentication])
-      );
-      
-
-      useFocusEffect(
-        useCallback(() => {
-          if (!currentUser) {
-            setLoading(false);
-            return ;
-          }
-      
-          const fetchProfileData = async () => {
-            try {
-              const userRef = doc(db, 'users', currentUser.uid);
-              const userDoc = await getDoc(userRef);
-      
-              if (userDoc.exists) {
-                const user = userDoc.data();
-                console.log('User data:', user);
-                setUserData(user);
-      
-                // Fetch posts created by the user
-                const postsQuery = query(collection(db, "posts"), where("userId", "==", currentUser.uid));
-                const postDocs = await getDocs(postsQuery);
-                setPosts(postDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      
-                // Fetch events created by the user
-                const eventsQuery = query(collection(db, "Events"), where("userId", "==", currentUser.uid));
-                const eventDocs = await getDocs(eventsQuery);
-                setEvents(eventDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-              } else {
-                console.log('No such document!');
+    
+        const user = auth().currentUser;
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+    
+        const fetchProfileData = async () => {
+          try {
+            const userRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userRef);
+    
+            if (userDoc.exists) {
+              const userData = userDoc.data();
+              setUserData(userData);
+    
+              const [postDocs, eventDocs] = await Promise.all([
+                getDocs(query(collection(db, "posts"), where("userId", "==", user.uid),orderBy('createdAt','desc'),limit(10))),
+                getDocs(query(collection(db, "Events"), where("userId", "==", user.uid),orderBy('dateTime','desc'),limit(10))),
+              ]);
+    
+              setPosts(postDocs.docs.map(doc => {
+                const data = doc.data();
+                return {
+                  id: doc.id,
+                  title: data.title ?? '',
+                  content: data.content ?? '',
+                  mediaUrls: data.mediaUrls ?? [],
+                  createdAt: data.createdAt ?? null,
+                  geohash6: data.geohash6 ?? '',
+                  geohash5: data.geohash5 ?? '',
+                  geohash4: data.geohash4 ?? '',
+                  commentCount: data.commentCount ?? 0,
+                  likeCount: data.likeCount ?? 0,
+                } as Post;
+              }));              
+              setEvents(
+                eventDocs.docs.map(doc => {
+                  const data = doc.data();
+                  return {
+                    id: doc.id,
+                    title: data.title ?? '',
+                    description: data.description ?? '',
+                    dateTime: data.dateTime?.toDate?.() ?? new Date(),
+                    venue: data.venue ?? '',
+                    geohash: data.geohash ?? '',
+                    location: data.location ?? { _latitude: 0, _longitude: 0 },
+                    public: data.public ?? false,
+                    createdBy: data.createdBy ?? '',
+                    allowedUsers: data.allowedUsers ?? [],
+                    notifierUsers: data.notifierUsers ?? [],
+                  } as Event;
+                })
+              );
+              if (eventDocs.docs.length > 0) {
+                setLastEvent(eventDocs.docs[eventDocs.docs.length - 1]);
               }
-            } catch (error) {
-              console.error('Error fetching profile data:', error);
-              setPosts([]);
-              setEvents([]);
-            } finally {
-              setLoading(false);
+              if(postDocs.docs.length>0){
+                setLastPost(postDocs.docs[postDocs.docs.length-1]);
+              }
+              console.log('lastEvent',lastEvent);
+              
+            } else {
+              console.log('No such user document!');
             }
-          };
-      
-          setLoading(true);
-          fetchProfileData();
-        }, [])
-      );
+          } catch (error) {
+            console.error('Error fetching profile data:', error);
+            setPosts([]);
+            setEvents([]);
+          } finally {
+            setLoading(false);
+          }
+        };
+    
+        fetchProfileData();
+      }, [navigation])
+    );
+    
 
       if (loading) {
         return (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
             <ActivityIndicator size="large" color="#0000ff" />
           </View>
         );
@@ -119,7 +145,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#fff', padding: 16 }}>
+      <View style={{ flex: 1, backgroundColor: '#000', padding: 16 }}>
         {userData && (
           <View style={{ alignItems: 'center', marginBottom: 20 }}>
             <TouchableOpacity
@@ -133,7 +159,8 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
               <Image
                 source={
                   userData.profilePic
-                    ? { uri: userData.profilePic }
+                    ?  
+                    { uri: userData.profilePic }
                     : {
                         uri: 'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg',
                       }
@@ -141,8 +168,8 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                 className="w-24 h-24 rounded-full"
               />
             </TouchableOpacity>
-            <Text style={{ fontSize: 20, fontWeight: 'bold', marginTop: 10 }}>
-              {userData.username}
+            <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold', marginTop: 10 }}>
+              {userData.username || "No username"}
             </Text>
             <Text style={{ fontSize: 14, color: 'gray' }}>
               {userData.bio || 'No bio available'}
@@ -161,6 +188,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
               padding: 10,
               borderTopLeftRadius: 10,
               borderBottomLeftRadius: 10,
+              marginTop: 10,
               alignItems: 'center',
             }}
           >
@@ -175,6 +203,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
               padding: 10,
               borderTopRightRadius: 10,
               borderBottomRightRadius: 10,
+              marginTop: 10,
               alignItems: 'center',
             }}
           >
@@ -182,38 +211,21 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
           </TouchableOpacity>
         </View>
     
-        {activeTab === 'posts' ? (
-          <PostList/>
+        { activeTab === 'posts' ? (
+          posts.length > 0 ?  ( 
+            <PostList initialPosts={posts} lastP={lastPost}/>
         ) : (
-          <FlatList
-            data={posts}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <View style={{ padding: 10, borderWidth: 1, borderColor: '#ddd', marginBottom: 10, borderRadius: 8 }}>
-                <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{item.title}</Text>
+          <Text style={{ color: 'white', textAlign: 'center', marginTop: 20 }}>No posts yet.</Text>
+        )
+        ) : null}
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-                  <Text style={{ color: 'gray' }}>Likes: {item.likes?.length || 0}</Text>
-                  <Text style={{ color: 'gray' }}>Comments: {item.comments?.length || 0}</Text>
-                </View>
-
-                <TouchableOpacity
-                  onPress={() => deletePost(item.id)}
-                  style={{
-                    marginTop: 10,
-                    backgroundColor: 'red',
-                    padding: 8,
-                    borderRadius: 5,
-                    alignSelf: 'flex-end',
-                  }}
-                >
-                  <Text style={{ color: 'white' }}>Delete Post</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          />
-
-        )}
+        {activeTab === 'events' ? (
+          events.length > 0 ? (
+            <EventList initialEvents={events} lastE={lastEvent} />
+          ) : (
+            <Text style={{ color: 'white', textAlign: 'center', marginTop: 20 }}>No events yet.</Text>
+          )
+        ) : null}
       </View>
     );
   };

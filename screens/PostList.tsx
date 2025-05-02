@@ -3,25 +3,24 @@ import { View, FlatList, ActivityIndicator, Text, Image, StyleSheet, Dimensions 
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import Video from 'react-native-video';
+import { Post } from '../helper/types';
 
-interface Post {
-  id: string;
-  mediaType: string;
-  mediaUrl: string;
-  caption?: string;
-  createdAt: FirebaseFirestoreTypes.Timestamp;
-  fileSize?: number; // optional size in bytes
+
+
+interface PostListProps {
+  initialPosts: Post[],
+  lastP: FirebaseFirestoreTypes.DocumentSnapshot,
 }
 
 const { width } = Dimensions.get('window');
 
-const PostList = () => {
+const PostList = ( {initialPosts,lastP} : PostListProps) => {
   const currentUser = auth().currentUser;
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [lastPost, setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
+  const [posts, setPosts] = useState<Post[]>(initialPosts);
+  const [lastPost, setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(lastP);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [noMorePosts, setNoMorePosts] = useState(false);
+  const [noMorePosts, setNoMorePosts] = useState(initialPosts.length < 10);
 
   const fetchPosts = useCallback(async (loadMore = false) => {
     if (!currentUser || loadingMore || (loadMore && noMorePosts)) return;
@@ -36,7 +35,11 @@ const PostList = () => {
         .limit(10);
 
       if (loadMore && lastPost) {
-        query = query.startAfter(lastPost);
+        query = firestore()
+        .collection('posts')
+        .where('userId', '==', currentUser.uid)
+        .orderBy('createdAt', 'desc').startAfter(lastPost)
+        .limit(10);
       }
 
       const snapshot = await query.get();
@@ -58,7 +61,9 @@ const PostList = () => {
   }, [currentUser, lastPost, loadingMore, noMorePosts]);
 
   useEffect(() => {
-    fetchPosts();
+    if(initialPosts.length == 0){
+
+    }
   }, [fetchPosts]);
 
   if (loading && posts.length === 0) {
@@ -70,34 +75,35 @@ const PostList = () => {
   }
 
   const renderPost = ({ item }: { item: Post }) => {
-    const isVideoTooLarge = item.mediaType === 'video' && item.fileSize && item.fileSize > 100 * 1024 * 1024; // 100MB
+  const mediaUrl = item.mediaUrls[0];
 
-    return (
-      <View style={styles.card}>
-        {item.mediaType === 'image' && (
-          <Image source={{ uri: item.mediaUrl }} style={styles.media} />
-        )}
+  const isVideo = mediaUrl?.match(/\.(mp4|mov|avi|mkv)$/i);
+  const isImage = mediaUrl?.match(/\.(jpg|jpeg|png|webp)$/i);
 
-        {item.mediaType === 'video' && !isVideoTooLarge && (
-          <Video
-            source={{ uri: item.mediaUrl }}
-            style={styles.media}
-            controls
-            paused
-            resizeMode="cover"
-          />
-        )}
+  return (
+    <View style={styles.card}>
+      {isImage && (
+        <Image source={{ uri: mediaUrl }} style={styles.media} />
+      )}
 
-        {item.mediaType === 'video' && isVideoTooLarge && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>This video is too large to preview (over 100MB).</Text>
-          </View>
-        )}
+      {isVideo && (
+        <Video
+          source={{ uri: mediaUrl }}
+          style={styles.media}
+          controls
+          paused
+          resizeMode="cover"
+        />
+      )}
 
-        <Text style={styles.caption}>{item.caption}</Text>
-      </View>
-    );
-  };
+      <Text style={styles.title}>{item.title}</Text>
+      <Text style={styles.content}>{item.content}</Text>
+      <Text style={styles.caption}>
+        Likes: {item.likeCount} | Comments: {item.commentCount}
+      </Text>
+    </View>
+  );
+};
 
   return (
     <FlatList
@@ -143,7 +149,17 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     padding: 10,
     textAlign: 'center'
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  content: {
+    marginTop: 4,
+    fontSize: 15,
   }
+
 });
 
 export default PostList;

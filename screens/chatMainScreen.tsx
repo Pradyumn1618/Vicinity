@@ -52,6 +52,9 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const handleUserPress = (user: OnlineUser) => {
     setSelectedUser(user);
     setIsUserModalVisible(true);
+    navigation.navigate('UserProfile', {
+      userId : user.userId,
+    });
   };
 
   const handleViewProfile = (user: OnlineUser) => {
