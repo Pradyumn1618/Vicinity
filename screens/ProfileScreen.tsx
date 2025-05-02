@@ -113,7 +113,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
             };
 
             fetchProfileData();
-        }, [navigation,user])
+        }, [navigation, user])
     );
 
     const handleLogout = async () => {
@@ -191,8 +191,8 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                                 userData.profilePic
                                     ? { uri: userData.profilePic }
                                     : {
-                                          uri: 'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg',
-                                      }
+                                        uri: 'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg',
+                                    }
                             }
                             style={styles.profileImage}
                         />
@@ -207,6 +207,12 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                 onPress={() => navigation.navigate('UpdateProfile')}
             >
                 <Text style={styles.editButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={styles.savedPostsButton}
+                onPress={() => navigation.navigate('SavedPosts')} // Navigate to SavedPostsScreen
+            >
+                <Text style={styles.savedPostsButtonText}>Saved Posts</Text>
             </TouchableOpacity>
 
             <View style={styles.tabContainer}>
@@ -392,6 +398,23 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         textAlign: 'center',
         marginTop: 20,
+    },
+    savedPostsButton: {
+        backgroundColor: '#3B3D8A', // Same as Edit Profile button
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 16,
+        alignItems: 'center',
+        marginBottom: 20,
+        shadowColor: '#3B3D8A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+    },
+    savedPostsButtonText: {
+        color: '#F4F5F7',
+        fontSize: 16,
+        fontWeight: '700',
     },
 });
 

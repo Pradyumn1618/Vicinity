@@ -32,7 +32,7 @@ const groupByMonth = (items: MediaItem[]) => {
   return Object.entries(grouped).map(([title, data]) => ({ title, data }));
 };
 
-const MediaProfileScreen = ({ route }: { route: { params: { chatId: string; receiverDetails: { profilePic: string; username: string; status: string; }; }; }; }) => {
+const MediaProfileScreen = ({ route,navigation }: { route: { params: { chatId: string; receiverDetails: { profilePic: string; username: string; status: string; id:string }; }; }; }) => {
   const { chatId, receiverDetails } = route.params;
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem>();
@@ -86,8 +86,10 @@ const MediaProfileScreen = ({ route }: { route: { params: { chatId: string; rece
 
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: '#000' }}>
+      <TouchableOpacity onPress={() => {navigation.navigate('UserProfile',{userId:receiverDetails.id});}} style={{ marginBottom: 20 }}>
       <FastImage source={{ uri: receiverDetails.profilePic }} style={{ width: 100, height: 100, borderRadius: 50, alignSelf: 'center' }} />
       <Text style={{ color: '#fff', fontSize: 20, textAlign: 'center', marginTop: 10 }}>{receiverDetails.username}</Text>
+      </TouchableOpacity>
       <Text style={{ color: 'gray', textAlign: 'center', marginBottom: 20 }}>{receiverDetails.status}</Text>
 
       <Text style={{ color: '#fff', fontSize: 18, marginBottom: 10 }}>Media</Text>

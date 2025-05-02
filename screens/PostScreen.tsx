@@ -20,7 +20,7 @@ import {
   ToastAndroid,
 } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
-import { NavigationProp, useFocusEffect } from '@react-navigation/native';
+import { NavigationProp, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import firestore, { addDoc, collection, serverTimestamp, getFirestore, getDocs, query, orderBy, doc, setDoc, updateDoc, increment, deleteDoc, getDoc, limit, startAfter } from '@react-native-firebase/firestore';
 import { requestLocationPermission, requestNotificationPermission, startLocationTracking } from '../helper/locationPermission';

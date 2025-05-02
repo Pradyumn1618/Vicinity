@@ -260,6 +260,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
           setReceiverDetails((prev: any) => ({
             ...prev,
             ...userDoc.data(),
+            id: userDoc.id,
           }));
         }
         receiverDetailsRef.current = userDoc.data();
