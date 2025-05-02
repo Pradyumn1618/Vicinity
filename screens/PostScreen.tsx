@@ -8,7 +8,6 @@ import {
   Image,
   ActivityIndicator,
   ScrollView,
-  Modal,
   TextInput,
   TouchableOpacity,
   Dimensions,
@@ -20,7 +19,7 @@ import {
   ToastAndroid,
 } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
-import { NavigationProp, useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { NavigationProp, useFocusEffect } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import firestore, { addDoc, collection, serverTimestamp, getFirestore, getDocs, query, orderBy, doc, setDoc, updateDoc, increment, deleteDoc, getDoc, limit, startAfter } from '@react-native-firebase/firestore';
 import { requestLocationPermission, requestNotificationPermission, startLocationTracking } from '../helper/locationPermission';
@@ -38,18 +37,67 @@ import GradientText from '../components/animatedText';
 import { refreshFcmToken } from '../helper/locationPermission';
 import { Menu, Provider } from "react-native-paper";
 import { useIsFocused } from '@react-navigation/native';
+import Modal from 'react-native-modal';
+
 interface PostScreenProps {
   navigation: NavigationProp<any>;
 }
 
+const DistanceFilterDropdown = ({ navigation, distanceFilter, setDistanceFilter }) => {
+  const [isModalVisible, setModalVisible] = useState(false);
+
+  const handleOptionSelect = (distance) => {
+    setDistanceFilter(distance);
+    setModalVisible(false);
+  };
+
+  return (
+    <View>
+      <TouchableOpacity
+        onPress={() => setModalVisible(true)}
+        style={styles.inboxButton}
+      >
+        <Icon1 name="dots-vertical" size={24} color="#F4F5F7" />
+      </TouchableOpacity>
+
+      <Modal
+        isVisible={isModalVisible}
+        onBackdropPress={() => setModalVisible(false)}
+        style={styles.modal}
+        animationIn="slideInDown"
+        animationOut="slideOutUp"
+      >
+        <View style={styles.modalContent}>
+          <TouchableOpacity
+            style={styles.option}
+            onPress={() => handleOptionSelect('nearby')}
+          >
+            <Text style={styles.optionText}>Nearby</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.option}
+            onPress={() => handleOptionSelect('far')}
+          >
+            <Text style={styles.optionText}>Far</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.option}
+            onPress={() => handleOptionSelect('farther')}
+          >
+            <Text style={styles.optionText}>Farther</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
 const db = getFirestore();
 const screenWidth = Dimensions.get('window').width;
-
 
 const PostScreen = ({ navigation }: PostScreenProps) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
-  // const [likedPosts, setLikedPosts] = useState<{ [key: string]: boolean }>({});
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [newComment, setNewComment] = useState<{ [key: string]: string }>({});
@@ -66,6 +114,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   const [replyText, setReplyText] = useState<{ [commentId: string]: string }>({});
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
   const [likeCounts, setLikeCounts] = useState<{ [postId: string]: { liked: boolean, likeCount: number } }>({});
+  const [distanceFilter, setDistanceFilter] = useState<'nearby' | 'far' | 'farther'>('nearby');
 
   const isFocused = useIsFocused();
 
@@ -140,13 +189,44 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     try {
       setLoading(true);
       const geo = await waitForGeohash() as string;
-      const geohash5 = geo?.substring(0, 5);
-      if (!geohash5) return;
+      let geohash = geo?.substring(0, 4);
+      switch (distanceFilter) {
+        case 'far':
+          geohash = geo?.substring(0,5);
+          break;
+        case 'farther':
+          geohash = geo?.substring(0,4);
+          break;
+        default:
+          geohash = geo?.substring(0,6);
+      }
+      
+      if (!geohash) return;
 
-      const querySnapshot = await firestore()
+      let querySnapshot = await firestore()
         .collection('posts')
-        .where('geohash5', '==', geohash5)
+        .where('geohash6', '==', geohash)
         .get();
+
+      switch (distanceFilter){
+        case 'far':
+          querySnapshot = await firestore()
+          .collection('posts')
+          .where('geohash5', '==', geohash)
+          .get();
+          break;
+        case 'farther':
+          querySnapshot = await firestore()
+          .collection('posts')
+          .where('geohash4', '==', geohash)
+          .get();
+          break;
+        default :
+          querySnapshot = await firestore()
+          .collection('posts')
+          .where('geohash6', '==', geohash)
+          .get();
+      }
 
       const fetchedPosts: Post[] = querySnapshot.docs.map(doc => ({
         ...(doc.data() as Post),
@@ -191,7 +271,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, distanceFilter]);
 
   const loadCachedPosts = () => {
     const cachedPosts = mmkv.getString('posts');
@@ -451,7 +531,6 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     }
   };
 
-
   const isVideo = (url: string) => {
     try {
       const decoded = decodeURIComponent(url);
@@ -597,16 +676,16 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
         </Text>
 
         <View style={styles.actions}>
-        <View style={styles.commentSection}>
+          <View style={styles.commentSection}>
             <TouchableOpacity onPress={() => toggleLike(item.id)} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <FontAwesome
-              name={likeCounts[item.id].liked ? 'heart' : 'heart-o'}
-              size={20}
-              color={likeCounts[item.id].liked ? '#FF6B6B' : '#F4F5F7'}
-            />
-            {likeCounts[item.id]?.likeCount > 0 && (
-              <Text style={[styles.commentCount, { marginLeft: 6 }]}>{likeCounts[item.id].likeCount}</Text>
-            )}
+              <FontAwesome
+                name={likeCounts[item.id]?.liked ? 'heart' : 'heart-o'}
+                size={20}
+                color={likeCounts[item.id]?.liked ? '#FF6B6B' : '#F4F5F7'}
+              />
+              {likeCounts[item.id]?.likeCount > 0 && (
+                <Text style={[styles.commentCount, { marginLeft: 6 }]}>{likeCounts[item.id].likeCount}</Text>
+              )}
             </TouchableOpacity>
           </View>
           <View style={styles.commentSection}>
@@ -637,6 +716,11 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
           <View style={styles.logoContainer}>
             <GradientText />
           </View>
+          <DistanceFilterDropdown
+            navigation={navigation}
+            distanceFilter={distanceFilter}
+            setDistanceFilter={setDistanceFilter}
+          />
           <TouchableOpacity onPress={() => navigation.navigate('Inbox')} style={styles.inboxButton}>
             <Icon1 name="chat" size={24} color="#F4F5F7" />
           </TouchableOpacity>
@@ -700,7 +784,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
                         <View style={styles.commentContainer}>
                           <View style={styles.commentTopRow}>
                             <Text style={styles.commentUsername}>{item.username}</Text>
-                            <TouchableOpacity onPress={() => likeComment(selectedPostId!, item.id,commentLikes[item.id].liked)} style={styles.likeButton}>
+                            <TouchableOpacity onPress={() => likeComment(selectedPostId!, item.id, commentLikes[item.id].liked)} style={styles.likeButton}>
                               <FontAwesome
                                 name={commentLikes[item.id]?.liked ? 'heart' : 'heart-o'}
                                 size={14}
@@ -809,6 +893,7 @@ const styles = StyleSheet.create({
   },
   inboxButton: {
     alignItems: 'center',
+    paddingLeft: 12,
   },
   content: {
     flex: 1,
@@ -1055,6 +1140,26 @@ const styles = StyleSheet.create({
     color: '#4f26e0',
     fontWeight: '700',
     fontSize: 14,
+  },
+  modal: {
+    justifyContent: 'flex-start',
+    margin: 0,
+  },
+  modalContent: {
+    backgroundColor: 'black',
+    borderRadius: 8,
+    marginTop: 50,
+    marginHorizontal: 20,
+    padding: 10,
+    elevation: 5,
+  },
+  option: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  optionText: {
+    fontSize: 16,
+    color: 'white',
   },
 });
 
