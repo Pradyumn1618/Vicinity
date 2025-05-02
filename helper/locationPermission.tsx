@@ -1,7 +1,7 @@
 // import { check, PERMISSIONS, RESULTS } from "react-native-permissions";
 // import { Alert, Linking } from "react-native";
 import { Alert, PermissionsAndroid, Platform } from "react-native";
-import Geolocation from '@react-native-community/geolocation';
+import Geolocation from 'react-native-geolocation-service';
 import Geohash from 'ngeohash';
 import mmkv from '../storage';
 import { collection, GeoPoint, getFirestore,doc,getDoc,setDoc } from "@react-native-firebase/firestore";
@@ -60,6 +60,7 @@ export const requestLocationPermission = async () => {
 
 
 export const startLocationTracking = (userId: string) => {
+  console.log('Starting location tracking...');
     Geolocation.watchPosition(
       async position => {
         const { latitude, longitude } = position.coords;
@@ -116,7 +117,7 @@ export const startLocationTracking = (userId: string) => {
       },
       {
         enableHighAccuracy: true,
-        distanceFilter: 20, // Update only if user moves 20+ meters
+        // distanceFilter: 20, // Update only if user moves 20+ meters
         interval: 10000, // Every 10 seconds
         fastestInterval: 5000,
       }

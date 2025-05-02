@@ -23,13 +23,14 @@ import UserProfileScreen from './screens/UserProfileScreen.tsx';
 import EventList from './screens/EventList.tsx';
 import IndividualPostScreen from './screens/singlePost.tsx';
 import SearchPage from './screens/search.tsx';
+import SplashScreen from './screens/splashScreen.js';
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
 const Navigation = () => {
   return (
     // <NavigationContainer>
-      <Stack.Navigator initialRouteName="Home" screenOptions={{ headerBackVisible: false, headerShown: false }} >
+      <Stack.Navigator initialRouteName="SplashScreen" screenOptions={{ headerBackVisible: false, headerShown: false }} >
         <Stack.Screen name="Home" component={PostScreen}  />
         <Stack.Screen name="Events" component={EventsScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
@@ -50,6 +51,7 @@ const Navigation = () => {
         <Stack.Screen name="UserProfile" component={UserProfileScreen} />
         <Stack.Screen name="Post" component={IndividualPostScreen} />
         <Stack.Screen name="Search" component={SearchPage} />
+        <Stack.Screen name="SplashScreen" component={SplashScreen} />
 
         {/* Add more screens here */}
       </Stack.Navigator>

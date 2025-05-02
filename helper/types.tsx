@@ -29,6 +29,7 @@ export type rootStackParamList = {
     CreatePost: undefined;
     Post: {postId:string}
     Search: undefined;
+    SplashScreen: undefined;
 };
 
 export interface Post {

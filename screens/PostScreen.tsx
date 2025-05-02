@@ -92,6 +92,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
       if (hasPermission && Platform.OS === 'android') {
         try {
           await promptForEnableLocationIfNeeded();
+          console.log('Location enabled');
           startLocationTracking(user?.id);
         } catch (error: unknown) {
           if (error instanceof Error) console.error(error.message);
@@ -109,11 +110,29 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     }
   }, [user]);
 
-  const fetchPosts = async () => {
+  const waitForGeohash = async (timeout = 10000) => {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const interval = setInterval(() => {
+        const geo = mmkv.getString('geohash');
+        if (geo) {
+          clearInterval(interval);
+          resolve(geo);
+        }
+        if (Date.now() - start > timeout) {
+          clearInterval(interval);
+          reject(new Error('Timeout waiting for geohash'));
+        }
+      }, 200);
+    });
+  };
+
+  const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
-      const geohash5 = mmkv.getString('geohash')?.substring(0, 5);
-      if (!geohash5) throw new Error('Missing geohash');
+      const geo = await waitForGeohash() as string;
+      const geohash5 = geo?.substring(0, 5);
+      if (!geohash5) return;
 
       const querySnapshot = await firestore()
         .collection('posts')
@@ -149,11 +168,11 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
       }, {}));
     } catch (err) {
       console.error('Error fetching posts:', err);
-      Alert.alert('Error', 'Failed to load posts.');
+      // Alert.alert('Error', 'Failed to load posts.');
     } finally {
       setLoading(false);
     }
-  };
+  },[]);
 
   const loadCachedPosts = () => {
     const cachedPosts = mmkv.getString('posts');
@@ -168,9 +187,10 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   };
 
   useEffect(() => {
+    if(!user) return;
     loadCachedPosts();
     fetchPosts();
-  }, []);
+  }, [user,fetchPosts]);
 
   // Update like status in Firestore for a comment
   const likeComment = async (postId, commentId, liked) => {
@@ -597,6 +617,10 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     </View>
     </TouchableOpacity>
   );
+
+  if(!user) {
+    <ActivityIndicator size="large" color="#ffffff" />
+  }
   return (
     <View className="flex-1 bg-black">
       <View className="flex-row items-center justify-between px-4 py-3 border-b border-zinc-800">

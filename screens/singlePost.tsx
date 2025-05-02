@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, FlatList, Image, TouchableOpacity, Dimensions, TextInput } from 'react-native';
-import { useRoute } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { doc, getDoc, getFirestore, setDoc, collection, getDocs, addDoc, query, orderBy, limit, startAfter, serverTimestamp } from '@react-native-firebase/firestore';
 import Video from 'react-native-video';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import { useUser } from '../context/userContext';
 import { set } from 'date-fns';
+import mmkv from '../storage';
 
 const db = getFirestore();
 
-const IndividualPostScreen = () => {
+const IndividualPostScreen = ({navigation}) => {
     const route = useRoute();
     const { user } = useUser();
     const { postId } = route.params;
@@ -31,6 +32,25 @@ const IndividualPostScreen = () => {
     const [visibleReplies, setVisibleReplies] = useState({});
     const [replyText, setReplyText] = useState('');
     const [replyVisible, setReplyVisible] = useState(false);
+
+    const checkAuthentication = React.useCallback(() => {
+        if (!mmkv.getString('user')) {
+          // Use reset instead of navigate to remove the current screen from the stack
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
+        }
+      }, [navigation]);
+      useEffect(() => {
+        checkAuthentication();
+      }, [checkAuthentication]);
+      // Check authentication every time the screen gains focus
+      useFocusEffect(
+        React.useCallback(() => {
+          checkAuthentication();
+        }, [checkAuthentication])
+      );
 
 
     const screenWidth = Dimensions.get('window').width;

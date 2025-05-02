@@ -47,7 +47,7 @@
           android:scheme="https"/>
           <data
           android:host="vicinity-deep-linking.vercel.app"
-          android:pathPrefix="/post/" />
+          android:pathPrefix="/" />
       </intent-filter>
     </activity>
   </application>
