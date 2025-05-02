@@ -19,6 +19,8 @@ import GroupChatScreen from './screens/groupChatScreen.tsx';
 import GroupDetailsScreen from './screens/groupDetailsScreen.tsx';
 import PostScreen from './screens/PostScreen.tsx';
 import CreatePostScreen from './screens/CreatePost.tsx';
+import IndividualPostScreen from './screens/singlePost.tsx';
+import SearchPage from './screens/search.tsx';
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
@@ -42,6 +44,9 @@ const Navigation = () => {
         <Stack.Screen name="GroupChatScreen" component={GroupChatScreen} />
         <Stack.Screen name="GroupDetailsScreen" component={GroupDetailsScreen} />
         <Stack.Screen name="CreatePost" component={CreatePostScreen} />
+        <Stack.Screen name="Post" component={IndividualPostScreen} />
+        <Stack.Screen name="Search" component={SearchPage} />
+
         {/* Add more screens here */}
       </Stack.Navigator>
     // </NavigationContainer>

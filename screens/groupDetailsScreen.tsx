@@ -41,7 +41,7 @@ import * as Progress from 'react-native-progress';
 import ImageViewing from "react-native-image-viewing";
 import { sendAddedToGroupNotification } from '../helper/sendNotification';
 import { useNavigation } from '@react-navigation/native';
-import { set } from 'date-fns';
+import { FieldValue } from '@react-native-firebase/firestore';
 const Tab = createMaterialTopTabNavigator();
 const documentId = firestore.FieldPath.documentId();
 const storage = getStorage();
@@ -309,6 +309,70 @@ const GroupInfoTab = ({ groupId }) => {
     // Delete the previous image if it exists
 
   };
+
+  const handleIfAdmin = async () => {
+    const groupRef = doc(db, 'groups', groupId);
+    const groupSnap = await getDoc(groupRef);
+    if (groupSnap.exists) {
+      const groupData = groupSnap.data();
+      if (groupData.admins && groupData.admins.length > 0) {
+        return;
+      } else {
+        const joinTimes = groupSnap.data()?.joinTimes || {};
+        const oldestMember = Object.keys(joinTimes).reduce((oldest, memberId) => {
+          return joinTimes[memberId] < joinTimes[oldest] ? memberId : oldest;
+        }, Object.keys(joinTimes)[0]);
+
+        if (oldestMember) {
+          await updateDoc(groupRef, {
+            admins: arrayUnion(oldestMember),
+          });
+        }
+      }
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    try {
+      setLoading(true);
+      const groupRef = doc(db, 'groups', groupId);
+
+      // 1. Delete group image from storage
+      if (group.photoURL) {
+        await deleteObject(ref(storage, extractStoragePathFromUrl(group.photoURL)));
+      }
+
+      // 2. Remove group reference from all members
+      const batch1 = writeBatch(db);
+      (group.members || []).forEach((memberId) => {
+        const userRef = doc(db, 'users', memberId);
+        batch1.update(userRef, {
+          groups: arrayRemove(groupId),
+        });
+      });
+      await batch1.commit();
+
+      // 3. Delete all messages in the group
+      const groupMessagesRef = collection(db, 'groups', groupId, 'messages');
+      const messagesSnapshot = await getDocs(groupMessagesRef);
+      const batch2 = writeBatch(db);
+      messagesSnapshot.forEach((d) => {
+        batch2.delete(d.ref);
+      });
+      await batch2.commit();
+
+      // 4. Delete the group document itself
+      await deleteDoc(groupRef);
+
+      ToastAndroid.show('Group deleted successfully', ToastAndroid.SHORT);
+      navigation.navigate('Inbox' as never);
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      Alert.alert('Error', 'Failed to delete group. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <View className="flex-1 bg-black p-4 relative">
@@ -622,7 +686,17 @@ const GroupInfoTab = ({ groupId }) => {
                 await updateDoc(groupRef, {
                   members: arrayRemove(currentUser),
                   admins: arrayRemove(currentUser),
+                  [`joinTimes.${currentUser}`]: FieldValue.delete(),
                 });
+                handleIfAdmin();
+                const userRef = doc(db, 'users', currentUser);
+                await updateDoc(userRef, {
+                  groups: arrayRemove(groupId),
+                });
+                if(group?.members?.length === 0){
+                  await handleDeleteGroup();
+                }
+                navigation.navigate('Inbox' as never);
               },
             },
           ]);
@@ -640,45 +714,8 @@ const GroupInfoTab = ({ groupId }) => {
                 text: 'Delete',
                 style: 'destructive',
                 onPress: async () => {
-                  try {
-                    setLoading(true);
-                    const groupRef = doc(db, 'groups', groupId);
-
-                    // 1. Delete group image from storage
-                    if (group.photoURL) {
-                      await deleteObject(ref(storage, extractStoragePathFromUrl(group.photoURL)));
-                    }
-
-                    // 2. Remove group reference from all members
-                    const batch1 = writeBatch(db);
-                    (group.members || []).forEach((memberId) => {
-                      const userRef = doc(db, 'users', memberId);
-                      batch1.update(userRef, {
-                        groups: arrayRemove(groupId),
-                      });
-                    });
-                    await batch1.commit();
-
-                    // 3. Delete all messages in the group
-                    const groupMessagesRef = collection(db, 'groups', groupId, 'messages');
-                    const messagesSnapshot = await getDocs(groupMessagesRef);
-                    const batch2 = writeBatch(db);
-                    messagesSnapshot.forEach((doc) => {
-                      batch2.delete(doc.ref);
-                    });
-                    await batch2.commit();
-
-                    // 4. Delete the group document itself
-                    await deleteDoc(groupRef);
-
-                    ToastAndroid.show('Group deleted successfully', ToastAndroid.SHORT);
-                    navigation.navigate('Inbox' as never);
-                  } catch (error) {
-                    console.error('Error deleting group:', error);
-                    Alert.alert('Error', 'Failed to delete group. Please try again.');
-                  } finally {
-                    setLoading(false);
-                  }
+                 await handleDeleteGroup();
+                navigation.navigate('Inbox' as never);
                 },
               },
             ]);

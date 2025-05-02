@@ -26,24 +26,12 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     const user = auth().currentUser;
     if (user) {
       requestNotificationPermission();
-      refreshFcmToken();
+      // refreshFcmToken();
 
     }
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = messaging().onTokenRefresh(async (newToken) => {
-      console.log('🔁 Token refreshed:', newToken);
-      const userId = auth().currentUser?.uid;
-      if (userId) {
-        const db = getFirestore();
-        await db.collection('users').doc(userId).update({
-          fcmToken: newToken,
-        });
-      }
-    });
-    return unsubscribe;
-  }, []);
+  
   useEffect(() => {
     const user = auth().currentUser;
     if (!user) {
@@ -74,29 +62,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     checkPermission();
   }, []);
 
-  const refreshFcmToken = async () => {
-    try {
-      const token = await messaging().getToken();
-      // console.log('📲 New FCM Token:', token);
   
-      const userId = auth().currentUser?.uid;
-      if (userId && token) {
-        const db = getFirestore();
-        const userDoc = await db.collection('users').doc(userId).get();
-        const savedToken = userDoc.data()?.fcmToken;
-        if (savedToken === token) {
-          return;
-        }
-        await db.collection('users').doc(userId).update({
-          fcmToken: token,
-        });
-        // console.log('✅ Token updated in Firestore');
-      }
-    } catch (err) {
-      console.error('Failed to refresh FCM token:', err);
-    }
-  };
-
   // Check authentication on initial mount
   const checkAuthentication = React.useCallback(() => {
     if (!mmkv.getString('user')) {

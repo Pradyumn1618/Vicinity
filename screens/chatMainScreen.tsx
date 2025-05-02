@@ -299,6 +299,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
       await firestore().runTransaction(async (transaction) => {
         transaction.update(groupRef, {
           members: firestore.FieldValue.arrayUnion(userId),
+          [`joinTimes.${userId}`]: Date.now(), // Update only the current user's join time
         });
         transaction.update(userRef, {
           groups: firestore.FieldValue.arrayUnion(group.id),
@@ -653,67 +654,6 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
           </Modal>
         </>
       )}
-      {/* <TouchableOpacity
-        onPress={() => setIsModalVisible(true)}
-        style={{
-          position: 'absolute',
-          bottom: 20,
-          right: 20,
-          backgroundColor: '#4F46E5',
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.3,
-          shadowRadius: 4,
-          elevation: 5,
-        }}
-      >
-        <Ionicons name="add" size={28} color="white" />
-      </TouchableOpacity> */}
-
-      {/* Search Modal */}
-      {/* <Modal isVisible={isModalVisible} onBackdropPress={() => setIsModalVisible(false)}>
-        <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 8 }}>
-          <TextInput
-            placeholder="Search users..."
-            value={searchText}
-            onChangeText={handleSearchUsers}
-            style={{
-              borderWidth: 1,
-              borderColor: '#ccc',
-              borderRadius: 8,
-              padding: 8,
-              marginBottom: 16,
-            }}
-          />
-          <FlatList
-            data={searchResults}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => handleStartChat(item)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: 8,
-                  borderBottomWidth: 1,
-                  borderBottomColor: '#eee',
-                }}
-              >
-                <Image
-                  source={{ uri: item.photoURL }}
-                  style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
-                />
-                <Text>{item.username}</Text>
-              </TouchableOpacity>
-            )}
-          />
-        </View>
-      </Modal> */}
     </View>
   );
 }

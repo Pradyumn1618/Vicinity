@@ -16,14 +16,24 @@ interface Message {
   sender: string;
   text: string;
   media?: string | null;
-  replyTo?: string | null;
+  replyTo?: {text:string,id:string} | null;
   timestamp: number;
   delivered?: boolean;
   seen?: boolean;
 }
 
+interface GrpMessage {
+  id: string;
+  text: string;
+  sender: string;
+  senderName: string;
+  timestamp: number;
+  media?: string | null;
+  replyTo?: { senderName: string, text: string, id: string } | null;
+}
+
 export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
-  const { setMessages, currentChatId, setChats, setGroups } = useChatContext();
+  const { setMessages, currentChatId, setChats, setGroups,setGroupMessages,groupMessages } = useChatContext();
   const userGeohashRef = useRef<string | null>(null);
   const connectedRef = useRef(false);
 
@@ -50,6 +60,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         profilePic: data.profilePic,
       });
 
+      socket.off('delete-message');
       socket.on('delete-message', async (msg) => {
         const { messageId, chatId } = msg;
         deleteMessage(messageId);
@@ -72,6 +83,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
       });
 
+      socket.off('seen-messages');
       socket.on('seen-messages', async (msg) => {
         const { chatId, userId: receiver, timestamp } = msg;
         if (currentChatId === chatId) {
@@ -127,6 +139,8 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         }
       });
 
+      socket.off('receive-group-message');
+
       socket.on('receive-group-message', async (msg) => {
         if (!msg) return;
         // Store encrypted message locally
@@ -136,11 +150,11 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         if (currentChatId === msg.groupId) {
           msg.seen = true;
           console.log('Received group message:', msg);
-          setMessages((prev: Message[]) => [msg,...prev]);
+          setGroupMessages((prev: GrpMessage[]) => [msg,...prev]);
         } else {
-          console.log('Received group message in background');
+          console.log('Received group message in background',msg);
 
-          await incrementGroupUnreadCount(msg.groupId);
+          incrementGroupUnreadCount(msg.groupId);
           setGroups((prevChats) =>
             prevChats.map((chat) => {
               if (chat.id === msg.groupId) {
@@ -155,11 +169,12 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         }
       });
 
+      socket.off('delete-group-message');
       socket.on('delete-group-message', async (msg) => {
         const { messageId, groupId } = msg;
         // deleteMessage(messageId);
         if (currentChatId === groupId) {
-          setMessages((prev: Message[]) => prev.filter((message) => message.id !== messageId));
+          setGroupMessages((prev: GrpMessage[]) => prev.filter((message) => message.id !== messageId));
         } else {
           decrementGroupUnreadCount(groupId);
           setGroups((prevChats) =>
@@ -181,7 +196,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (err) {
       console.error('🔥 Error connecting with geohash:', err);
     }
-  }, [currentChatId, setMessages, setChats, setGroups]);
+  }, [currentChatId, setMessages, setChats, setGroups,setGroupMessages]);
 
   useEffect(() => {
     const handleAuthChange = (user: any) => {

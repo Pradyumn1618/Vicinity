@@ -7,6 +7,8 @@ import mmkv from '../storage';
 import { collection, GeoPoint, getFirestore,doc,getDoc,setDoc } from "@react-native-firebase/firestore";
 import { useSocket } from "./socketProvider";
 import messaging from '@react-native-firebase/messaging';
+import auth from '@react-native-firebase/auth';
+
 
 
 const firestore = getFirestore();
@@ -122,26 +124,69 @@ export const startLocationTracking = (userId: string) => {
   };
 
   
-  export const requestNotificationPermission = async () => {
-    const alreadyAsked = await mmkv.getString('notification_permission_requested');
+export const requestNotificationPermission = async () => {
+  // Check if the user has already selected "Don't ask again"
+  const alreadyAsked = mmkv.getBoolean('notification_permission_requested');
+  if (alreadyAsked) {
+    console.log('User selected "Don\'t ask again". Skipping permission request.');
+    return;
+  }
+
+  // Show an alert to ask for permission
+  Alert.alert(
+    'Enable Notifications',
+    'This app needs notification permissions to keep you updated.',
+    [
+      {
+        text: 'Don\'t Ask Again',
+        onPress: () => {
+          mmkv.set('notification_permission_requested', true); // Store the flag
+          console.log('User selected "Don\'t ask again".');
+        },
+        style: 'cancel',
+      },
+      {
+        text: 'Allow',
+        onPress: async () => {
+          const authStatus = await messaging().requestPermission();
+          const enabled =
+            authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+            authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+          if (enabled) {
+            console.log('Notification permission granted.');
+          } else {
+            console.log('Notification permission denied.');
+          }
+
+          mmkv.set('notification_permission_requested', true); // Store the flag
+        },
+      },
+    ]
+  );
+};
+
+  export const refreshFcmToken = async () => {
+    try {
+      const token = await messaging().getToken();
+      // console.log('📲 New FCM Token:', token);
   
-    if (alreadyAsked) {
-      console.log("Notification permission already requested.");
-      return;
+      const userId = auth().currentUser?.uid;
+      if (userId && token) {
+        const db = getFirestore();
+        const userDoc = await db.collection('users').doc(userId).get();
+        const savedToken = userDoc.data()?.fcmToken;
+        if (savedToken === token) {
+          return;
+        }
+        await db.collection('users').doc(userId).update({
+          fcmToken: token,
+        });
+        // console.log('✅ Token updated in Firestore');
+      }
+    } catch (err) {
+      console.error('Failed to refresh FCM token:', err);
     }
-  
-    const authStatus = await messaging().requestPermission();
-    const enabled =
-      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-  
-    if (enabled) {
-      console.log('Notification permission granted.');
-    } else {
-      console.log('Notification permission denied.');
-    }
-  
-    // Store flag so we only ask once
-    await mmkv.set('notification_permission_requested', 'true');
   };
+
   

@@ -26,11 +26,16 @@ export type rootStackParamList = {
     GroupDetailsScreen: { groupId: string };
     PostScreen: undefined;
     CreatePost: undefined;
+    Post: {postId:string}
+    Search: undefined;
 };
 
 export interface Post {
     id: string;
     title: string;
+    username: string;
+    userId: string;
+    profilePic: string;
     content: string;
     mediaUrls: string[];
     createdAt: FirebaseFirestoreTypes.Timestamp | null;

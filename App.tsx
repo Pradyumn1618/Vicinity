@@ -17,7 +17,10 @@ import { Buffer } from 'buffer';
 import PushNotification from 'react-native-push-notification';
 import { navigationRef } from './helper/navigationService'; // adjust path
 import { UserProvider } from './context/userContext';
-
+import { doc, getFirestore, onSnapshot } from '@react-native-firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import mmkv from './storage';
+import { Provider } from 'react-native-paper';
 
 
 global.Buffer = Buffer;
@@ -67,6 +70,21 @@ const AppContent = () => {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = messaging().onTokenRefresh(async (newToken) => {
+      console.log('🔁 Token refreshed:', newToken);
+      const userId = auth().currentUser?.uid;
+      if (userId) {
+        const db = getFirestore();
+        await db.collection('users').doc(userId).update({
+          fcmToken: newToken,
+        });
+      }
+    });
+    return unsubscribe;
+  }, []);
+  
+
 
   // 3. Handle notifications (foreground, background, killed)
   useEffect(() => {
@@ -80,9 +98,9 @@ const AppContent = () => {
         const chatId = remoteMessage.data?.customKey ?? '';
         console.log(chatId, sender);
         navigationRef.navigate('ChatScreen', { chatId, receiver: sender });
-      }else if(user && navigationRef.isReady() && remoteMessage.data?.purpose === 'group-message'){
+      } else if (user && navigationRef.isReady() && remoteMessage.data?.purpose === 'group-message') {
         const groupId = remoteMessage.data?.customKey ?? '';
-        navigationRef.navigate('GroupChatScreen', {groupId});
+        navigationRef.navigate('GroupChatScreen', { groupId });
       }
     });
 
@@ -132,11 +150,11 @@ const AppContent = () => {
     const appStateListener = AppState.addEventListener('change', async (nextAppState: string) => {
       if (nextAppState === 'active') {
         // The app has come to the foreground
-        const userId = auth().currentUser?.uid;
-        if (userId) {
-          const chats = await getAllChatsFromSQLite(userId);
-          setChats(chats);
-        }
+        // const userId = auth().currentUser?.uid;
+        // if (userId) {
+        //   const chats = await getAllChatsFromSQLite(userId);
+        //   setChats(chats);
+        // }
         PushNotification.cancelAllLocalNotifications();
         console.log('App has come to the foreground');
       }
@@ -153,6 +171,32 @@ const AppContent = () => {
       console.log('Current Chat ID updated:', currentChatId);
     }
   }, [currentChatId]);
+
+  const db = getFirestore();
+
+  useEffect(() => {
+    const user = auth().currentUser;
+    if (!user) return;
+
+    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), async (snapshot) => {
+      const remoteSessionId = snapshot.data()?.sessionId;
+      const localSessionId = await AsyncStorage.getItem('sessionId');
+
+      if (remoteSessionId && localSessionId && remoteSessionId !== localSessionId) {
+        console.log('Session mismatch. Logging out...');
+        await AsyncStorage.removeItem('sessionId');
+        await auth().signOut();
+        mmkv.delete('user');
+        mmkv.delete('geohash');
+        navigationRef.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [db]);
 
   // 4. Handle incoming FCM notifications in the foreground
   useEffect(() => {
@@ -197,10 +241,10 @@ const AppContent = () => {
           console.log('No message ID provided for deletion');
         }
         return;
-      } else if(purpose === 'group-message') {
+      } else if (purpose === 'group-message') {
         // Handle group message notification
         const groupId = remoteMessage.data?.customKey;
-        if (groupId ===  currentChatId) {
+        if (groupId === currentChatId) {
           console.log('Same group chat — no notification shown');
           return; // Don't show notification
         } else {
@@ -289,10 +333,10 @@ const AppContent = () => {
           delivered: remoteMessage.data.delivered,
           seen: remoteMessage.data.seen,
         }
-        await insertMessage(message,remoteMessage.data.customKey, remoteMessage.data.receiver);
+        await insertMessage(message, remoteMessage.data.customKey, remoteMessage.data.receiver);
         incrementUnreadCount(remoteMessage.data.customKey);
         return;
-      }else if (remoteMessage.data.purpose === 'delete') {
+      } else if (remoteMessage.data.purpose === 'delete') {
         const messageId = remoteMessage.data?.customKey;
         if (messageId) {
           await deleteMessage(messageId);
@@ -302,12 +346,12 @@ const AppContent = () => {
           console.log('No message ID provided for deletion');
         }
         return;
-      }else if(remoteMessage.data.purpose === 'group-message'){
+      } else if (remoteMessage.data.purpose === 'group-message') {
         incrementGroupUnreadCount(remoteMessage.data.customKey);
         return;
       }
     }
-    
+
   });
   return (
     <>
@@ -327,7 +371,7 @@ const AppContent = () => {
           onClose={() => setGroupNotificationData(null)}
         />
       )}
-      <NavigationContainer ref={navigationRef}>
+      <NavigationContainer ref={navigationRef} linking={linking}>
         <SocketProvider>
           <Navigation />
         </SocketProvider>
@@ -336,16 +380,29 @@ const AppContent = () => {
   );
 };
 
+const linking = {
+  prefixes: ['vicinity://', 'https://vicinity-deep-linking.vercel.app/'],
+  config: {
+    screens: {
+      Home: '',
+      Post: 'post/:postId',
+    },
+  },
+};
+
+
 
 const App = () => {
 
 
   return (
     <>
-    <UserProvider>
-      <ChatProvider>
-        <AppContent />
-      </ChatProvider>
+      <UserProvider>
+        <ChatProvider>
+          <Provider>
+          <AppContent />
+          </Provider>
+        </ChatProvider>
       </UserProvider>
     </>
   );

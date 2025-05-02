@@ -16,12 +16,14 @@ import {
   Pressable,
   TouchableWithoutFeedback,
   StyleSheet,
+  Share,
+  ToastAndroid,
 } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
-import { NavigationProp } from '@react-navigation/native';
+import { NavigationProp, useFocusEffect } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import firestore, { addDoc, collection, serverTimestamp, getFirestore, getDocs, query, orderBy, doc, setDoc, updateDoc, increment, deleteDoc, getDoc, limit, startAfter } from '@react-native-firebase/firestore';
-import { requestLocationPermission, startLocationTracking } from '../helper/locationPermission';
+import { requestLocationPermission, requestNotificationPermission, startLocationTracking } from '../helper/locationPermission';
 import { promptForEnableLocationIfNeeded } from 'react-native-android-location-enabler';
 import NavigationBar from '../components/NavigationBar';
 import mmkv from '../storage';
@@ -33,6 +35,10 @@ import { EmptyComments, FooterLoader } from '../components/commentsEnd';
 import { useUser } from '../context/userContext';
 import Icon1 from 'react-native-vector-icons/MaterialCommunityIcons';
 import GradientText from '../components/animatedText';
+import { refreshFcmToken } from '../helper/locationPermission';
+import { Menu, Provider } from "react-native-paper";
+
+
 interface PostScreenProps {
   navigation: NavigationProp<any>;
 }
@@ -51,6 +57,33 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   // const [user, setUser] = useState<any>(null);
   const [commentLikes, setCommentLikes] = useState<{ [commentId: string]: { liked: boolean, likeCount: number } }>({});
   const { user } = useUser();
+
+  useEffect(() => {
+    if (user) {
+      requestNotificationPermission();
+      refreshFcmToken();
+
+    }
+  }, [user]);
+
+  const checkAuthentication = React.useCallback(() => {
+    if (!mmkv.getString('user')) {
+      // Use reset instead of navigate to remove the current screen from the stack
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    }
+  }, [navigation]);
+  useEffect(() => {
+    checkAuthentication();
+  }, [checkAuthentication]);
+  // Check authentication every time the screen gains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      checkAuthentication();
+    }, [checkAuthentication])
+  );
 
   useEffect(() => {
 
@@ -91,7 +124,25 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
         ...(doc.data() as Post),
         id: doc.id,
       }));
-      setPosts(fetchedPosts);
+      const sortedPost = fetchedPosts.sort((a, b) => {
+        const aDate = a.createdAt?.toDate?.() || new Date(0);
+        const bDate = b.createdAt?.toDate?.() || new Date(0);
+        return bDate.getTime() - aDate.getTime();
+      }
+      );
+      setPosts((prevPosts) => {
+        const mergedPosts = [...prevPosts];
+        sortedPost.forEach((newPost) => {
+          const index = mergedPosts.findIndex((post) => post.id === newPost.id);
+          if (index !== -1) {
+            mergedPosts[index] = newPost; // Replace existing post with the same id
+          } else {
+            mergedPosts.push(newPost); // Add new post if id doesn't exist
+          }
+        });
+        return mergedPosts;
+      });
+      mmkv.set('posts', JSON.stringify(sortedPost));
       setCommentCounts(fetchedPosts.reduce((acc, post) => {
         acc[post.id] = post.commentCount || 0;
         return acc;
@@ -104,7 +155,20 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     }
   };
 
+  const loadCachedPosts = () => {
+    const cachedPosts = mmkv.getString('posts');
+    if (cachedPosts) {
+      const parsedPosts = JSON.parse(cachedPosts);
+      setPosts(parsedPosts);
+      setCommentCounts(parsedPosts.reduce((acc, post) => {
+        acc[post.id] = post.commentCount || 0;
+        return acc;
+      }, {}));
+    }
+  };
+
   useEffect(() => {
+    loadCachedPosts();
     fetchPosts();
   }, []);
 
@@ -357,10 +421,97 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   });
 
   const viewConfigRef = useRef({ viewAreaCoveragePercentThreshold: 50 });
+  const [menuVisible, setMenuVisible] = useState<string | null>(null);
+  const savePost = async (post: Post) => {
+    try {
+      const savedPostsRef = doc(db, 'users', user?.id, 'savedPosts', post.id);
+      await setDoc(savedPostsRef, { id: post.id });
+      ToastAndroid.show('Post saved successfully!', ToastAndroid.SHORT);
+    } catch (error) {
+      console.error('Error saving post:', error);
+      Alert.alert('Error', 'Failed to save post.');
+    }
+  };
+
+  const sharePost = async (post) => {
+    // Prepare your share message, including title, content, and media URLs
+    const { title, content, mediaUrls, username } = post;
+    
+    // Create a message to share, including the text and media links
+    let shareMessage = `Check out this post by ${username}:\n\n`;
+    shareMessage += `Title: ${title}\n\n`;
+    shareMessage += `Content: ${content}\n\n`;
+    
+    // Add media URLs (if any)
+    // if (mediaUrls?.length > 0) {
+    //   shareMessage += '\nMedia: \n';
+    //   mediaUrls.forEach((url) => {
+    //     shareMessage += `${url}\n`; // Include each media URL
+    //   });
+    // }
+    shareMessage += 'https://vicinity-deep-linking.vercel.app/post/' + post.id; // Add your app link here
+  
+    try {
+      await Share.share({
+        message: shareMessage,  // This will include the entire post content
+      });
+    } catch (error) {
+      console.error('Error sharing post:', error);
+    }
+  };
+  
 
   const renderItem = ({ item }: { item: Post }) => (
-    <View className="bg-zinc-800 p-4 mb-6 rounded-lg" style={{ minHeight: 420 }}>
+    <TouchableOpacity
+    onPress={() => {
+      navigation.navigate('Post', { postId: item.id });
+    }
+    }
+    >
+    <View className="bg-zinc-800 py-4 px-1 mb-6 rounded-lg">
+      <View className="flex-row justify-between items-start mb-2 px-1">
+        <TouchableOpacity
+          className="flex-row items-center"
+          onPress={() => navigation.navigate('UserProfile', { userId: item.userId })}
+        >
+          <Image
+            source={{ uri: item.profilePic || 'https://yourapp.com/default-profile.png' }}
+            className="w-8 h-8 rounded-full mr-2"
+          />
+          <Text className="text-white text-base font-medium">@{item.username}</Text>
+        </TouchableOpacity>
+
+        <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+
+
+        <Menu
+          visible={menuVisible === item.id}
+          onDismiss={() => setMenuVisible(null)}
+          anchor={
+            <TouchableOpacity onPress={() => setMenuVisible(item.id)}>
+              <Icon name="more-vertical" size={20} color="white" />
+            </TouchableOpacity>
+          }
+        >
+          <Menu.Item
+            onPress={async () => {
+              await sharePost(item);
+              setMenuVisible(null);
+            }}
+            title="Share"
+          />
+          <Menu.Item
+            onPress={async () => {
+              await savePost(item); // you define this
+              setMenuVisible(null);
+            }}
+            title="Save Post"
+          />
+        </Menu>
+        </View>
+      </View>
       <Text className="text-white text-lg font-semibold mb-1">{item.title}</Text>
+
       <Text className="text-white mb-2">{item.content}</Text>
 
       {item.mediaUrls?.length > 0 && (
@@ -371,18 +522,18 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             keyExtractor={(url, index) => `${item.id}-${index}`}
-            renderItem={({ item: url }) =>
+            renderItem={({ item: url, index }) =>
               isVideo(url) ? (
                 <Video
                   source={{ uri: url }}
                   style={{
-                    width: screenWidth - 32,
+                    width: screenWidth - 50,
                     height: 250,
                     borderRadius: 8,
                     marginRight: 10,
                   }}
                   resizeMode="cover"
-                  paused={true}
+                  paused={currentMediaIndex !== index}
                   controls
                 />
               ) : (
@@ -444,6 +595,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
 
       </View>
     </View>
+    </TouchableOpacity>
   );
   return (
     <View className="flex-1 bg-black">

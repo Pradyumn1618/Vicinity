@@ -10,12 +10,6 @@
 import * as functions from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { onCall } from "firebase-functions/v2/https";
-import * as ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
-import ffmpeg from 'fluent-ffmpeg'; 
-import * as os from 'os';
-import * as path from 'path';
-import * as fs from 'fs';
-import { onObjectFinalized } from "firebase-functions/v2/storage";
 
 // Initialize Admin SDK once
 if (!admin.apps.length) {
@@ -104,92 +98,92 @@ export const sendNotification = onCall(async (request) => {
   };
 });
 
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+// ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
-export const convertToHLS = onObjectFinalized({ region: "us-central1" }, async (event) => {
-  const object = event.data;
-  const filePath = object.name;
-  const contentType = object.contentType;
-  const bucketName = object.bucket;
+// export const convertToHLS = onObjectFinalized({ region: "us-central1" }, async (event) => {
+//   const object = event.data;
+//   const filePath = object.name;
+//   const contentType = object.contentType;
+//   const bucketName = object.bucket;
 
-  // Make sure file exists and is an mp4 video
-  if (!filePath || !contentType || !bucketName) {
-    console.log('Missing required file details.');
-    return null;
-  }
-  if (!filePath.endsWith('.mp4')) {
-    console.log('Not an mp4 file. Skipping...');
-    return null;
-  }
+//   // Make sure file exists and is an mp4 video
+//   if (!filePath || !contentType || !bucketName) {
+//     console.log('Missing required file details.');
+//     return null;
+//   }
+//   if (!filePath.endsWith('.mp4')) {
+//     console.log('Not an mp4 file. Skipping...');
+//     return null;
+//   }
 
-  const bucket = admin.storage().bucket(bucketName);
-  // Remove the '.mp4' extension from the file name
-  const fileName = path.basename(filePath, '.mp4');
-  const tempLocalFile = path.join(os.tmpdir(), `${fileName}.mp4`);
-  const tempOutputDir = path.join(os.tmpdir(), fileName);
+//   const bucket = admin.storage().bucket(bucketName);
+//   // Remove the '.mp4' extension from the file name
+//   const fileName = path.basename(filePath, '.mp4');
+//   const tempLocalFile = path.join(os.tmpdir(), `${fileName}.mp4`);
+//   const tempOutputDir = path.join(os.tmpdir(), fileName);
 
-  // Create the temporary output directory
-  await fs.promises.mkdir(tempOutputDir, { recursive: true });
+//   // Create the temporary output directory
+//   await fs.promises.mkdir(tempOutputDir, { recursive: true });
 
-  // Download file to temporary directory
-  await bucket.file(filePath).download({ destination: tempLocalFile });
-  console.log('Video downloaded to', tempLocalFile);
+//   // Download file to temporary directory
+//   await bucket.file(filePath).download({ destination: tempLocalFile });
+//   console.log('Video downloaded to', tempLocalFile);
 
-  // Set the output m3u8 playlist path
-  const m3u8Path = path.join(tempOutputDir, 'index.m3u8');
+//   // Set the output m3u8 playlist path
+//   const m3u8Path = path.join(tempOutputDir, 'index.m3u8');
 
-  // Run FFmpeg command to convert the mp4 to HLS
-  await new Promise<void>((resolve, reject) => {
-    ffmpeg(tempLocalFile)
-      .outputOptions([
-        '-codec: copy',
-        '-start_number 0',
-        '-hls_time 5',
-        '-hls_list_size 0',
-        '-f hls',
-      ])
-      .output(m3u8Path)
-      .on('end', () => {
-        console.log('FFmpeg conversion finished.');
-        resolve();
-      })
-      .on('error', (err: any) => {
-        console.error('Error during FFmpeg conversion:', err);
-        reject(err);
-      })
-      .run();
-  });
+//   // Run FFmpeg command to convert the mp4 to HLS
+//   await new Promise<void>((resolve, reject) => {
+//     ffmpeg(tempLocalFile)
+//       .outputOptions([
+//         '-codec: copy',
+//         '-start_number 0',
+//         '-hls_time 5',
+//         '-hls_list_size 0',
+//         '-f hls',
+//       ])
+//       .output(m3u8Path)
+//       .on('end', () => {
+//         console.log('FFmpeg conversion finished.');
+//         resolve();
+//       })
+//       .on('error', (err: any) => {
+//         console.error('Error during FFmpeg conversion:', err);
+//         reject(err);
+//       })
+//       .run();
+//   });
 
-  console.log('HLS files generated in', tempOutputDir);
+//   console.log('HLS files generated in', tempOutputDir);
 
-  // Upload each file (.ts and .m3u8) back to Firebase Storage under hls/<fileName>/...
-  const files = fs.readdirSync(tempOutputDir);
-  const uploadPromises = files.map(async (filename) => {
-    const localFilePath = path.join(tempOutputDir, filename);
-    const destination = `hls/${fileName}/${filename}`;
-    await bucket.upload(localFilePath, {
-      destination,
-      contentType: filename.endsWith('.m3u8')
-        ? 'application/x-mpegURL'
-        : 'video/MP2T',
-    });
-    console.log('Uploaded', destination);
-  });
+//   // Upload each file (.ts and .m3u8) back to Firebase Storage under hls/<fileName>/...
+//   const files = fs.readdirSync(tempOutputDir);
+//   const uploadPromises = files.map(async (filename) => {
+//     const localFilePath = path.join(tempOutputDir, filename);
+//     const destination = `hls/${fileName}/${filename}`;
+//     await bucket.upload(localFilePath, {
+//       destination,
+//       contentType: filename.endsWith('.m3u8')
+//         ? 'application/x-mpegURL'
+//         : 'video/MP2T',
+//     });
+//     console.log('Uploaded', destination);
+//   });
 
-  await Promise.all(uploadPromises);
-  console.log('All HLS parts uploaded.');
+//   await Promise.all(uploadPromises);
+//   console.log('All HLS parts uploaded.');
 
-  // Clean up temporary files and directories
-  try {
-    fs.rmSync(tempLocalFile, { force: true });
-    fs.rmSync(tempOutputDir, { recursive: true, force: true });
-    console.log('Temporary files cleaned up.');
-  } catch (error) {
-    console.error('Error cleaning up temporary files:', error);
-  }
+//   // Clean up temporary files and directories
+//   try {
+//     fs.rmSync(tempLocalFile, { force: true });
+//     fs.rmSync(tempOutputDir, { recursive: true, force: true });
+//     console.log('Temporary files cleaned up.');
+//   } catch (error) {
+//     console.error('Error cleaning up temporary files:', error);
+//   }
 
-  return null;
-});
+//   return null;
+// });
 
 // Start writing functions
 // https://firebase.google.com/docs/functions/typescript

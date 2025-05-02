@@ -67,7 +67,6 @@ interface Message {
 
 const GroupChatScreen = ({ route, navigation }) => {
   const { groupId } = route.params;
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -79,7 +78,7 @@ const GroupChatScreen = ({ route, navigation }) => {
   const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
   const [currentUser, setCurrentUserId] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const { setCurrentChatId } = useChatContext();
+  const { setCurrentChatId,groupMessages,setGroupMessages } = useChatContext();
   const [typingStatus, setTypingStatus] = useState('');
   const typerList = useRef<string[]>([]);
   const socket = useSocket();
@@ -226,10 +225,10 @@ const GroupChatScreen = ({ route, navigation }) => {
   useEffect(() => {
     const filterMessages = async () => {
       if (searchText.trim() === '') {
-        return messages;
+        return groupMessages;
       }
       const lowerCaseSearchText = searchText.toLowerCase();
-      const result = messages.filter((message) => {
+      const result = groupMessages.filter((message) => {
         const messageText = message.text.toLowerCase();
         return messageText.includes(lowerCaseSearchText);
       });
@@ -237,7 +236,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       setFilteredMessages(result);
     }
     filterMessages();
-  }, [messages, searchText, setFilteredMessages]);
+  }, [groupMessages, searchText, setFilteredMessages]);
 
 
   const handleMediaPress = (uri: string) => {
@@ -319,7 +318,7 @@ const GroupChatScreen = ({ route, navigation }) => {
   
         // Combine and set
         const combined = [...afterMessages,...beforeMessages];
-        setMessages(combined);
+        setGroupMessages(combined);
   
         // Optional: Update unread timestamp cache
         setGroupUnreadTimestamp(groupId, afterMessages[0]?.timestamp);
@@ -333,7 +332,7 @@ const GroupChatScreen = ({ route, navigation }) => {
     };
   
     fetchMessagesAroundUnread();
-  }, [groupId, unreadTimestamp, db]);
+  }, [groupId, unreadTimestamp, db,setGroupMessages]);
 
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -348,7 +347,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       const q = query(
         messagesRef,
         orderBy('timestamp', 'desc'),
-        startAfter(messages[messages.length - 1].timestamp),
+        startAfter(groupMessages[groupMessages.length - 1].timestamp),
         limit(100)
       );
       const snapshot = await getDocs(q);
@@ -357,7 +356,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       console.log('fetchedNewMessages',newMessages);
       if (newMessages.length > 0) {
         setEndTimestamp(newMessages[newMessages.length - 1]?.timestamp);
-        setMessages(prevMessages => [...prevMessages, ...newMessages]);
+        setGroupMessages(prevMessages => [...prevMessages, ...newMessages]);
       }
       if (newMessages.length < 100) {
         setHasMore(false);
@@ -399,8 +398,8 @@ const GroupChatScreen = ({ route, navigation }) => {
   }, []);
 
   const decoratedMessages = useMemo(() => {
-    return searchText.trim() === '' ? formatMessagesWithDateDividers(messages) : formatMessagesWithDateDividers(filteredMessages);
-  }, [messages, formatMessagesWithDateDividers, searchText, filteredMessages]);
+    return searchText.trim() === '' ? formatMessagesWithDateDividers(groupMessages) : formatMessagesWithDateDividers(filteredMessages);
+  }, [groupMessages, formatMessagesWithDateDividers, searchText, filteredMessages]);
 
   const initialUnreadIndex = useMemo(() => {
     if (hasScrolledToUnread.current) return 0;
@@ -528,7 +527,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       delivered: false,
     };
     // setShowDivider(false);
-    setMessages(prevMessages => [messageToDisplay, ...prevMessages]);
+    setGroupMessages(prevMessages => [messageToDisplay, ...prevMessages]);
     // insertMessage(messageToDisplay, chatId, receiver);
     const inptext = inputText;
     const reply = replyTo;
@@ -550,7 +549,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       const messageRef = doc(chatsRef, messageId);
       console.log('message',messageToDisplay);
       await setDoc(messageRef, {...messageToDisplay,delivered: true});
-      setMessages((prevMessages) =>{
+      setGroupMessages((prevMessages) =>{
         console.log('prevMessages',prevMessages);
         
           const updated = prevMessages.map((message) => {
@@ -574,6 +573,7 @@ const GroupChatScreen = ({ route, navigation }) => {
         if (reply) {
           sendGroupNotification(groupId, NotiMessage, currentUserId, reply.id);
         } else {
+          console.log('NotiMessage:', NotiMessage);
           sendGroupNotification(groupId, NotiMessage, currentUserId);
 
         }
@@ -645,14 +645,14 @@ const GroupChatScreen = ({ route, navigation }) => {
     const netInfo = await NetInfo.fetch();
     const isOffline = !netInfo.isConnected;
     if (isOffline) {
-      setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
+      setGroupMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
       // await deleteMessage(messageId);
       await insertIntoDeletedGroupMessages(messageId, groupId);
       return;
     }
     try {
       // Remove the message from the local state
-      setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
+      setGroupMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== messageId));
 
       // await deleteMessage(messageId);
       socket.emit('group-message-deleted', { messageId: messageId, groupId: groupId });
@@ -798,12 +798,12 @@ const GroupChatScreen = ({ route, navigation }) => {
         setTimeout(() => setHighlightedMessageId(null), 2000);
       }
     } else {
-      const newMessages = await CheckAndLoadGroupMessage(groupId, messageId, messages[messages.length - 1].timestamp);
+      const newMessages = await CheckAndLoadGroupMessage(groupId, messageId, groupMessages[groupMessages.length - 1].timestamp);
       if (!newMessages) {
         ToastAndroid.show('Could not find the message', ToastAndroid.SHORT);
         return;
       }
-      setMessages((prevMessages) => {
+      setGroupMessages((prevMessages) => {
         const combined = [...prevMessages,...newMessages];
         return combined;
       }
@@ -836,8 +836,6 @@ const GroupChatScreen = ({ route, navigation }) => {
     Clipboard.setString(text);
     ToastAndroid.show('Copied to clipboard', ToastAndroid.SHORT);
   };
-
-
 
 
   return (

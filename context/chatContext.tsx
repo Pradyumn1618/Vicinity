@@ -10,6 +10,8 @@ type ChatContextType = {
   setChats: React.Dispatch<React.SetStateAction<ChatPreview[]>>;
   groups: any[]; // Define the type for groups if needed
   setGroups: React.Dispatch<React.SetStateAction<any[]>>;
+  groupMessages: GrpMessage[];
+  setGroupMessages: React.Dispatch<React.SetStateAction<GrpMessage[]>>;
 };
 
 type ChatPreview = {
@@ -31,6 +33,16 @@ interface Message {
     seen?: boolean;
   }
 
+  interface GrpMessage {
+    id: string;
+    text: string;
+    sender: string;
+    senderName: string;
+    timestamp: number;
+    media?: string | null;
+    replyTo?: { senderName: string, text: string, id: string } | null;
+  }
+
 // Create context with proper default values
 const ChatContext = createContext<ChatContextType>({
   currentChatId: null,
@@ -41,6 +53,8 @@ const ChatContext = createContext<ChatContextType>({
     setChats: () => {},
     groups: [],
     setGroups: () => {},
+    groupMessages: [],
+    setGroupMessages: () => {},
 });
 
 
@@ -55,9 +69,10 @@ export const ChatProvider = ({ children }: ChatProviderProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [chats, setChats] = useState<ChatPreview[]>([]);
   const [groups, setGroups] = useState<any[]>([]); // Define the type for groups if needed
+  const [groupMessages, setGroupMessages] = useState<GrpMessage[]>([]);
 
   return (
-    <ChatContext.Provider value={{ currentChatId, setCurrentChatId, messages, setMessages, chats, setChats, groups, setGroups }}>
+    <ChatContext.Provider value={{ currentChatId, setCurrentChatId, messages, setMessages, chats, setChats, groups, setGroups, groupMessages, setGroupMessages }}>
       {children}
     </ChatContext.Provider>
   );

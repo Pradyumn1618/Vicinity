@@ -132,27 +132,6 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
         }
     };
 
-    // const handleDateChange = (event: any, selectedDate?: Date) => {
-    //     setShowDatePicker(false);
-    //     if (selectedDate) {
-    //         setForm({ ...form, dateTime: selectedDate });
-    //     }
-    // };
-
-    // const handleTimeChange = (event: any, selectedTime?: Date) => {
-    //     setShowTimePicker(false);
-    //     if (selectedTime) {
-    //         const updatedDateTime = new Date(form.dateTime);
-    //         updatedDateTime.setHours(selectedTime.getHours());
-    //         updatedDateTime.setMinutes(selectedTime.getMinutes());
-    //         setForm({ ...form, dateTime: updatedDateTime });
-    //     }
-    // };
-
-    // const togglePublicPrivate = () => {
-    //     setForm({ ...form, public: !form.public });
-    // };
-
     return (
         <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
             <KeyboardAvoidingView

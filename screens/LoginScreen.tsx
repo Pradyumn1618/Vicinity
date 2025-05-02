@@ -4,11 +4,15 @@ import auth from '@react-native-firebase/auth';
 import { GoogleSignin, GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import { NavigationProp, useFocusEffect } from '@react-navigation/native';
 import mmkv from '../storage';
+import { v4 as uuidv4 } from 'uuid';
+import { doc, setDoc,getFirestore } from '@react-native-firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface HomeScreenProps {
   navigation: NavigationProp<any>;
 }
 
+const db = getFirestore();
 
 const LoginScreen = ({ navigation }:HomeScreenProps) => {
   const checkAuthentication = React.useCallback(() => {
@@ -55,6 +59,12 @@ useFocusEffect(
       const googleCredential = auth.GoogleAuthProvider.credential(idToken);
       await auth().signInWithCredential(googleCredential);
       mmkv.set('user', JSON.stringify(auth().currentUser));
+      const sessionId = uuidv4();
+      const userRef = doc(db, 'users', auth().currentUser.uid);
+      await setDoc(userRef, {
+        sessionId: sessionId,
+      }, { merge: true });
+      await AsyncStorage.setItem('sessionId', sessionId);
       Alert.alert('Login Successful');
       navigation.navigate('Onboarding');
     } catch (error) {
@@ -70,6 +80,12 @@ useFocusEffect(
         throw new Error('Email not verified');
       }
       mmkv.set('user', JSON.stringify(auth().currentUser));
+      const sessionId = uuidv4();
+      const userRef = doc(db, 'users', auth().currentUser.uid);
+      await setDoc(userRef, {
+        sessionId: sessionId,
+      }, { merge: true });
+      await AsyncStorage.setItem('sessionId', sessionId);
       Alert.alert('Login Successful');
       navigation.navigate('Onboarding');
     } catch (error) {
