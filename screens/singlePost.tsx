@@ -346,9 +346,9 @@ const IndividualPostScreen = ({ navigation }) => {
                                 keyExtractor={(url, index) => `${post.id}-${index}`}
                                 renderItem={({ item: url }) =>
                                     isVideo(url) ? (
-                                        <Video source={{ uri: url }} style={{ width: screenWidth - 10, height: 'auto' }} resizeMode="cover" paused={false} controls />
+                                        <Video source={{ uri: url }} style={{ width: screenWidth - 10, height: 300 }} resizeMode="cover" paused={false} controls />
                                     ) : (
-                                        <Image source={{ uri: url }} style={{ width: screenWidth - 10, height: 'auto' }} resizeMode="cover" />
+                                        <Image source={{ uri: url }} style={{ width: screenWidth - 10, height: 300 }} resizeMode="cover" />
                                     )
                                 }
                                 onViewableItemsChanged={onViewableItemsChanged.current}
@@ -372,7 +372,7 @@ const IndividualPostScreen = ({ navigation }) => {
                             {commentCount > 0 && <Text className="text-white text-lg ml-2">{commentCount}</Text>}
                         </View>
                     </View>
-
+                    <Text className='text-white font-m'>Comments</Text>
                     <FlatList
                         data={comments}
                         keyExtractor={item => item.id}

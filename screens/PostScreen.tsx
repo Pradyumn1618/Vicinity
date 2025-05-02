@@ -57,6 +57,8 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   // const [user, setUser] = useState<any>(null);
   const [commentLikes, setCommentLikes] = useState<{ [commentId: string]: { liked: boolean, likeCount: number } }>({});
   const { user } = useUser();
+  const [isSwiping, setIsSwiping] = useState(false);
+
 
   useEffect(() => {
     if (user) {
@@ -482,7 +484,8 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   
 
   const renderItem = ({ item }: { item: Post }) => (
-    <TouchableOpacity
+    <TouchableWithoutFeedback
+    disabled={isSwiping}
     onPress={() => {
       navigation.navigate('Post', { postId: item.id });
     }
@@ -542,12 +545,14 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             keyExtractor={(url, index) => `${item.id}-${index}`}
+            onTouchStart={() => setIsSwiping(true)}
+            onTouchEnd={() => setIsSwiping(false)}
             renderItem={({ item: url, index }) =>
               isVideo(url) ? (
                 <Video
                   source={{ uri: url }}
                   style={{
-                    width: screenWidth - 50,
+                    width: screenWidth - 40,
                     height: 250,
                     borderRadius: 8,
                     marginRight: 10,
@@ -615,7 +620,7 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
 
       </View>
     </View>
-    </TouchableOpacity>
+    </TouchableWithoutFeedback>
   );
 
   if(!user) {

@@ -8,6 +8,7 @@ import PostList from './PostList';
 import EventList from './EventList';
 import { Post } from '../helper/types';
 import { Event } from '../helper/types';
+import { useUser } from '../context/userContext';
 
 interface ProfileScreenProps {
     navigation: NavigationProp<any>;
@@ -25,6 +26,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     const [lastEvent, setLastEvent] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
     const [lastPost, setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(null);
     const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+    const { user } = useUser();
 
     useFocusEffect(
         useCallback(() => {
@@ -39,7 +41,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                 return;
             }
 
-            const user = auth().currentUser;
+            // const user = auth().currentUser;
             if (!user) {
                 setLoading(false);
                 return;
@@ -47,7 +49,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
             const fetchProfileData = async () => {
                 try {
-                    const userRef = doc(db, 'users', user.uid);
+                    const userRef = doc(db, 'users', user.id);
                     const userDoc = await getDoc(userRef);
 
                     if (userDoc.exists) {
@@ -55,12 +57,13 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                         setUserData(userData);
 
                         const [postDocs, eventDocs] = await Promise.all([
-                            getDocs(query(collection(db, "posts"), where("userId", "==", user.uid), orderBy('createdAt', 'desc'), limit(10))),
-                            getDocs(query(collection(db, "Events"), where("userId", "==", user.uid), orderBy('dateTime', 'desc'), limit(10))),
+                            getDocs(query(collection(db, "posts"), where("userId", "==", user.id), orderBy('createdAt', 'desc'), limit(10))),
+                            getDocs(query(collection(db, "Events"), where("userId", "==", user.id), orderBy('dateTime', 'desc'), limit(10))),
                         ]);
 
                         setPosts(postDocs.docs.map(doc => {
                             const data = doc.data();
+                            // console.log('Post data:', data);
                             return {
                                 id: doc.id,
                                 title: data.title ?? '',
@@ -111,7 +114,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
             };
 
             fetchProfileData();
-        }, [navigation])
+        }, [navigation,user])
     );
 
     const handleLogout = async () => {
@@ -225,7 +228,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
             {activeTab === 'posts' ? (
                 posts.length > 0 ? (
-                    <PostList initialPosts={posts} lastP={lastPost} userId={userData.uid} />
+                    <PostList initialPosts={posts} lastP={lastPost} userId={userData.id} />
                 ) : (
                     <Text style={styles.emptyText}>No posts yet.</Text>
                 )
@@ -233,7 +236,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
             {activeTab === 'events' ? (
                 events.length > 0 ? (
-                    <EventList initialEvents={events} lastE={lastEvent} userId={userData.uid} />
+                    <EventList initialEvents={events} lastE={lastEvent} userId={userData.id} />
                 ) : (
                     <Text style={styles.emptyText}>No events yet.</Text>
                 )

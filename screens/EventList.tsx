@@ -84,7 +84,7 @@ const EventList = ({ initialEvents,lastE,userId }: EventListProps) => {
       <Text style={{ color: '#555', marginTop: 4 }}>{item.description}</Text>
       <Text style={{ marginTop: 4 }}>📍 {item.venue} </Text>
       <Text style={{ marginTop: 4, color: 'gray' }}>
-      {item.dateTime?.toDate().toLocaleString()}
+      {item.dateTime?.toLocaleString()}
         </Text>
     </View>
   );

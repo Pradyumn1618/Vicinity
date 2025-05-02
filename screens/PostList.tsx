@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, FlatList, ActivityIndicator, Text, Image, StyleSheet, Dimensions } from 'react-native';
+import { View, FlatList, ActivityIndicator, Text, Image, StyleSheet, Dimensions, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import Video from 'react-native-video';
-import { Post } from '../helper/types';
+import { Post, rootStackParamList } from '../helper/types';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 
 
 
@@ -15,8 +16,9 @@ interface PostListProps {
 
 const { width } = Dimensions.get('window');
 
-const PostList = ( {initialPosts,lastP, userId } : PostListProps) => {
+const PostList = ( {initialPosts,lastP, userId} : PostListProps) => {
   // const currentUser = auth().currentUser;
+  const navigation = useNavigation<NavigationProp<rootStackParamList>>();
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [lastPost, setLastPost] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(lastP);
   const [loading, setLoading] = useState(true);
@@ -62,10 +64,8 @@ const PostList = ( {initialPosts,lastP, userId } : PostListProps) => {
   }, [userId, lastPost, loadingMore, noMorePosts]);
 
   useEffect(() => {
-    if(initialPosts.length == 0){
-
-    }
-  }, [fetchPosts]);
+    console.log('posts:', posts);
+  }, [posts]);
 
   if (loading && posts.length === 0) {
     return (
@@ -75,14 +75,25 @@ const PostList = ( {initialPosts,lastP, userId } : PostListProps) => {
     );
   }
 
+  const checkVideo = (url) => {
+    try {
+        const decoded = decodeURIComponent(url);
+        return /\.(m3u8|mp4|mov|webm|avi|mkv)$/i.test(decoded.split('?')[0]);
+    } catch {
+        return false;
+    }
+};
+
   const renderPost = ({ item }: { item: Post }) => {
   const mediaUrl = item.mediaUrls[0];
-
-  const isVideo = mediaUrl?.match(/\.(mp4|mov|avi|mkv)$/i);
-  const isImage = mediaUrl?.match(/\.(jpg|jpeg|png|webp)$/i);
+  const isVideo = checkVideo(mediaUrl);
+  const isImage = !isVideo && mediaUrl;
+  
 
   return (
+    <TouchableWithoutFeedback onPress={() => navigation.navigate('Post', { postId: item.id })}>
     <View style={styles.card}>
+      
       {isImage && (
         <Image source={{ uri: mediaUrl }} style={styles.media} />
       )}
@@ -103,6 +114,7 @@ const PostList = ( {initialPosts,lastP, userId } : PostListProps) => {
         Likes: {item.likeCount} | Comments: {item.commentCount}
       </Text>
     </View>
+    </TouchableWithoutFeedback>
   );
 };
 
@@ -128,7 +140,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10
   },
   media: {
-    width: width - 20,
+    width: 'auto',
     height: 250,
     borderRadius: 10,
     backgroundColor: '#000'
@@ -136,7 +148,8 @@ const styles = StyleSheet.create({
   caption: {
     marginTop: 8,
     fontSize: 16,
-    fontWeight: '500'
+    fontWeight: '500',
+    color: 'white'
   },
   errorContainer: {
     height: 250,
@@ -155,10 +168,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginTop: 8,
+    color: 'white'
   },
   content: {
     marginTop: 4,
     fontSize: 15,
+    color: 'white'
   }
 
 });

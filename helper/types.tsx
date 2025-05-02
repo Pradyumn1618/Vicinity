@@ -11,8 +11,7 @@ export type rootStackParamList = {
     ChatScreen: { chatId: string; receiver: string };
     FullProfile: { profilePic: string; username: string };
     UserProfile: {userId: string;}
-    PostList: { id: string; mediaType: string ; mediaUrl: string; caption?: string; createdAt: any; 
-        fileSize?: number };
+    PostList: undefined;
     Inbox: undefined;
     ChatUserProfile: {
         chatId: string;
