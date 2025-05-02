@@ -8,6 +8,8 @@ import uuid from 'react-native-uuid';
 import mmkv from '../storage';
 import { useUser } from '../context/userContext';
 
+const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB in bytes
+
 interface CreatePostScreenProps {
   navigation: NavigationProp<any>;
 }
@@ -70,6 +72,7 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
     }
   };
 
+
   const handleMediaUpload = () => {
     launchImageLibrary(
       {
@@ -78,7 +81,19 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
       },
       response => {
         if (response.assets && response.assets.length > 0) {
-          const selectedUris = response.assets.map(asset => asset.uri).filter(Boolean) as string[];
+          let totalSize = 0;
+          const selectedAssets = response.assets.filter(asset => asset.uri && asset.fileSize);
+
+          for (const asset of selectedAssets) {
+            totalSize += asset.fileSize ?? 0;
+          }
+
+          if (totalSize > MAX_TOTAL_SIZE) {
+            Alert.alert('File Size Limit', 'The total size of selected media must be less than 100MB.');
+            return;
+          }
+
+          const selectedUris = selectedAssets.map(asset => asset.uri!) as string[];
           setMediaUris(selectedUris);
         } else if (response.errorCode) {
           Alert.alert('Error', response.errorMessage || 'Something went wrong.');
