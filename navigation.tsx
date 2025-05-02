@@ -24,6 +24,7 @@ import EventList from './screens/EventList.tsx';
 import IndividualPostScreen from './screens/singlePost.tsx';
 import SearchPage from './screens/search.tsx';
 import SplashScreen from './screens/splashScreen.js';
+import SavedPostsScreen from './screens/SavedPostsScreen.tsx';
 
 const Stack = createNativeStackNavigator<rootStackParamList>();
 
@@ -38,6 +39,7 @@ const Navigation = () => {
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="UpdateProfile" component={UpdateProfileScreen} />
+        <Stack.Screen name="SavedPosts" component={SavedPostsScreen} />
         <Stack.Screen name="ChatScreen" component={ChatScreen} />
         <Stack.Screen name="Inbox" component={InboxScreen} />
         <Stack.Screen name="FullProfile" component={FullProfileScreen} />
