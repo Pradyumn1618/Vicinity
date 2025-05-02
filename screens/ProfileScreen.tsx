@@ -246,7 +246,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#0A0B14', // Deep navy background
+        backgroundColor: 'black', // Deep navy background
         padding: 20,
     },
     loadingContainer: {

@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         padding: 28,
-        backgroundColor: '#0A0B14', // Deep navy background
+        backgroundColor: 'black', // Deep navy background
         borderTopLeftRadius: 1,
         borderTopRightRadius: 1,
     },
