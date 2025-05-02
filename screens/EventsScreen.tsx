@@ -10,20 +10,8 @@ import EventCard from '../components/EventCard';
 import CreateEventModal from '../components/CreateEventModal'; // Import the new component
 import auth from '@react-native-firebase/auth';
 import { ToastAndroid } from 'react-native';
+import { Event } from '../helper/types';
 
-interface Event {
-  id: string;
-  title: string;
-  description: string;
-  dateTime: Date;
-  venue: string;
-  geohash: string;
-  location: { _latitude: number; _longitude: number };
-  public: boolean;
-  createdBy: string;
-  allowedUsers?: string[];
-  notifierUsers?: string[];
-}
 
 const EventsScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
   const [events, setEvents] = useState<Event[]>([]);

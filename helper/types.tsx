@@ -10,8 +10,9 @@ export type rootStackParamList = {
     UpdateProfile: undefined;
     ChatScreen: { chatId: string; receiver: string };
     FullProfile: { profilePic: string; username: string };
+    UserProfile: {userId: string;}
     PostList: { id: string; mediaType: string ; mediaUrl: string; caption?: string; createdAt: any; 
-        fileSize?: string };
+        fileSize?: number };
     Inbox: undefined;
     ChatUserProfile: {
         chatId: string;
@@ -39,4 +40,19 @@ export interface Post {
     geohash4: string;
     commentCount: number;
     likeCount: number;
+}
+
+export interface Event {
+  id: string;
+  title: string;
+  description: string;
+  dateTime: Date;
+  venue: string;
+  geohash: string;
+  location: { _latitude: number; _longitude: number };
+  public: boolean;
+  createdBy: string;
+  allowedUsers?: string[];
+  notifierUsers?: string[];
+  createdAt: FirebaseFirestoreTypes.Timestamp | null;
 }
