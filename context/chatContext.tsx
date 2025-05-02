@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { initializeUnreadChats } from '../helper/databaseHelper';
 
 // Define the type for your context
 type ChatContextType = {
@@ -76,6 +77,14 @@ export const ChatProvider = ({ children }: ChatProviderProps) => {
   const [groupMessages, setGroupMessages] = useState<GrpMessage[]>([]);
   const [unreadChats, setUnreadChats] = useState<number>(0);
 
+  useEffect(() => {
+    const init = async () => {
+      const unread = await initializeUnreadChats();
+      setUnreadChats(unread);
+    };
+    init();
+  }, []);
+  
   return (
     <ChatContext.Provider value={{ currentChatId, setCurrentChatId, messages, setMessages, chats, setChats, groups, setGroups, groupMessages, setGroupMessages, unreadChats, setUnreadChats }}>
       {children}

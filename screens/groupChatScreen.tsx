@@ -42,7 +42,7 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { deleteObject, getDownloadURL, getStorage, ref, uploadBytesResumable } from '@react-native-firebase/storage';
 import moment from 'moment';
 import { nanoid } from 'nanoid';
-import { CheckAndLoadGroupMessage, getGroupUnreadTimestamp, insertIntoDeletedGroupMessages, insertIntoDeletedMessages, resetUnreadCount, setGroupUnreadTimestamp } from '../helper/databaseHelper';
+import { CheckAndLoadGroupMessage, getGroupUnreadCount, getGroupUnreadTimestamp, insertIntoDeletedGroupMessages, insertIntoDeletedMessages, resetGroupUnreadCount, resetUnreadCount, setGroupUnreadTimestamp } from '../helper/databaseHelper';
 import { useChatContext } from '../context/chatContext';
 import { send } from 'process';
 import { sendGroupNotification } from '../helper/sendNotification';
@@ -78,11 +78,11 @@ const GroupChatScreen = ({ route, navigation }) => {
   const [filteredMessages, setFilteredMessages] = useState<Message[]>([]);
   const [currentUser, setCurrentUserId] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const { setCurrentChatId,groupMessages,setGroupMessages } = useChatContext();
+  const { setCurrentChatId, groupMessages, setGroupMessages, setUnreadChats } = useChatContext();
   const [typingStatus, setTypingStatus] = useState('');
   const typerList = useRef<string[]>([]);
   const socket = useSocket();
-  const [unreadTimestamp,setUnreadTimestamp] = useState<number>(0);
+  const [unreadTimestamp, setUnreadTimestamp] = useState<number>(0);
   const hasScrolledToUnread = useRef(false);
   const [endTimestamp, setEndTimestamp] = useState<number>(0);
 
@@ -130,7 +130,7 @@ const GroupChatScreen = ({ route, navigation }) => {
     };
   }, [socket, groupId]);
 
-  useLayoutEffect(()=> {
+  useLayoutEffect(() => {
     const getUnreadTimestamp = async () => {
       const timestamp = await getGroupUnreadTimestamp(groupId);
       if (timestamp) {
@@ -141,7 +141,7 @@ const GroupChatScreen = ({ route, navigation }) => {
       setUnreadTimestamp(timestamp);
     };
     getUnreadTimestamp();
-  },[groupId]);
+  }, [groupId]);
 
 
 
@@ -288,12 +288,12 @@ const GroupChatScreen = ({ route, navigation }) => {
   useEffect(() => {
     if (!groupId || unreadTimestamp == null) return;
     console.log('here');
-  
+
     const fetchMessagesAroundUnread = async () => {
       setLoadingMore(true);
       try {
         const messagesRef = collection(db, 'groups', groupId, 'messages');
-  
+
         // Query 1: Fetch 20 messages BEFORE unreadTimestamp
         const beforeQ = query(
           messagesRef,
@@ -304,9 +304,9 @@ const GroupChatScreen = ({ route, navigation }) => {
         const beforeSnap = await getDocs(beforeQ);
         const beforeMessages = beforeSnap.docs
           .map(doc => ({ id: doc.id, ...doc.data() } as Message))
-        
-      setEndTimestamp(beforeMessages[beforeMessages.length - 1]?.timestamp);
-  
+
+        setEndTimestamp(beforeMessages[beforeMessages.length - 1]?.timestamp);
+
         // Query 2: Fetch ALL messages AFTER (or from) unreadTimestamp
         const afterQ = query(
           messagesRef,
@@ -315,31 +315,31 @@ const GroupChatScreen = ({ route, navigation }) => {
         );
         const afterSnap = await getDocs(afterQ);
         const afterMessages = afterSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-  
+
         // Combine and set
-        const combined = [...afterMessages,...beforeMessages];
+        const combined = [...afterMessages, ...beforeMessages];
         setGroupMessages(combined);
-  
+
         // Optional: Update unread timestamp cache
         setGroupUnreadTimestamp(groupId, afterMessages[0]?.timestamp);
-        console.log('messages',combined);
-  
+        console.log('messages', combined);
+
       } catch (err) {
         console.error('Error fetching messages:', err);
-      }finally {
+      } finally {
         setLoadingMore(false);
       }
     };
-  
+
     fetchMessagesAroundUnread();
-  }, [groupId, unreadTimestamp, db,setGroupMessages]);
+  }, [groupId, unreadTimestamp, db, setGroupMessages]);
 
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
   const onEndReached = async () => {
     if (!decoratedMessages || decoratedMessages.length === 0) return;
-    if(loadingMore || !hasMore) return;
+    if (loadingMore || !hasMore) return;
     if (!endTimestamp) return;
     setLoadingMore(true);
     try {
@@ -352,8 +352,8 @@ const GroupChatScreen = ({ route, navigation }) => {
       );
       const snapshot = await getDocs(q);
       const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-      console.log('endTimestamp',endTimestamp);
-      console.log('fetchedNewMessages',newMessages);
+      console.log('endTimestamp', endTimestamp);
+      console.log('fetchedNewMessages', newMessages);
       if (newMessages.length > 0) {
         setEndTimestamp(newMessages[newMessages.length - 1]?.timestamp);
         setGroupMessages(prevMessages => [...prevMessages, ...newMessages]);
@@ -403,36 +403,34 @@ const GroupChatScreen = ({ route, navigation }) => {
 
   const initialUnreadIndex = useMemo(() => {
     if (hasScrolledToUnread.current) return 0;
-  
+
     const index = decoratedMessages.findIndex(
       (msg) => msg.type === 'message' && msg.timestamp >= unreadTimestamp
     );
-  
+
     if (index !== -1) {
       hasScrolledToUnread.current = true;
       return index;
     }
-  
+
     return 0;
   }, [decoratedMessages, unreadTimestamp]);
 
 
-  // useEffect(() => {
-  //   if (unreadIndex !== null && flatListRef.current) {
-  //     flatListRef.current.scrollToIndex({
-  //       index: unreadIndex,
-  //       viewPosition: 0.5, // centers it
-  //       animated: true,
-  //     });
-  //   }
-  // }, [unreadIndex]);
-
-
   useLayoutEffect(() => {
-    setCurrentChatId(groupId);
-    resetUnreadCount(groupId);
-    // resetUnreadTimestamp(chatId);
-  }, [groupId, setCurrentChatId]);
+    const handleUnread = async () => {
+      const count = await getGroupUnreadCount(groupId); // Fetch from SQLite
+
+      if (count > 0) {
+        setUnreadChats(prev => Math.max(prev - 1, 0)); // Avoid negative
+        await resetGroupUnreadCount(groupId);
+      }
+
+      setCurrentChatId(groupId);
+    };
+
+    handleUnread();
+  }, [groupId, setCurrentChatId, setUnreadChats]);
 
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -547,21 +545,21 @@ const GroupChatScreen = ({ route, navigation }) => {
       // Add the message to Firestore
       const chatsRef = collection(db, 'groups', groupId, 'messages');
       const messageRef = doc(chatsRef, messageId);
-      console.log('message',messageToDisplay);
-      await setDoc(messageRef, {...messageToDisplay,delivered: true});
-      setGroupMessages((prevMessages) =>{
-        console.log('prevMessages',prevMessages);
-        
-          const updated = prevMessages.map((message) => {
-            if (message.id === messageId) {
-              console.log('Matched message:', message);
-              return { ...message, delivered: true };
-            }
-            return message;
-          })
-          console.log('updated',updated);
-          return updated;
-      
+      console.log('message', messageToDisplay);
+      await setDoc(messageRef, { ...messageToDisplay, delivered: true });
+      setGroupMessages((prevMessages) => {
+        console.log('prevMessages', prevMessages);
+
+        const updated = prevMessages.map((message) => {
+          if (message.id === messageId) {
+            console.log('Matched message:', message);
+            return { ...message, delivered: true };
+          }
+          return message;
+        })
+        console.log('updated', updated);
+        return updated;
+
       }
       );
       setReplyTo(null);
@@ -804,7 +802,7 @@ const GroupChatScreen = ({ route, navigation }) => {
         return;
       }
       setGroupMessages((prevMessages) => {
-        const combined = [...prevMessages,...newMessages];
+        const combined = [...prevMessages, ...newMessages];
         return combined;
       }
       );

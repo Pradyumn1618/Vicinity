@@ -725,9 +725,29 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
             distanceFilter={distanceFilter}
             setDistanceFilter={setDistanceFilter}
           />
-          <TouchableOpacity onPress={() => navigation.navigate('Inbox')} style={styles.inboxButton}>
+            <TouchableOpacity onPress={() => navigation.navigate('Inbox')} style={styles.inboxButton}>
             <Icon1 name="chat" size={24} color="#F4F5F7" />
-          </TouchableOpacity>
+            {unreadChats > 0 && (
+              <View
+              style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                backgroundColor: '#FF6B6B',
+                borderRadius: 8,
+                paddingHorizontal: 4,
+                paddingVertical: 2,
+                minWidth: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              >
+              <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                {unreadChats > 99 ? '99+' : unreadChats}
+              </Text>
+              </View>
+            )}
+            </TouchableOpacity>
         </View>
 
         <View style={styles.content}>

@@ -24,7 +24,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import ImageViewing from "react-native-image-viewing";
 
 
-import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB, CheckAndLoadMessage, getMessageById } from '../helper/databaseHelper';
+import { resetUnreadCount, resetUnreadTimestamp, getUnreadTimestamp, insertMessage, getMessages, deleteMessage, setSeenMessages, getLocalMessages, getReceiver, insertIntoDeletedMessages, filterMessagesDB, CheckAndLoadMessage, getMessageById, getUnreadCount } from '../helper/databaseHelper';
 import { DownloadHeader } from '../components/downLoad';
 import RenderMessage from '../components/renderMessage';
 
@@ -46,7 +46,7 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
     seen?: boolean;
   }
 
-  const { messages, setMessages } = useChatContext();
+  const { messages, setMessages,setUnreadChats } = useChatContext();
   const { setCurrentChatId } = useChatContext();
 
 
@@ -332,10 +332,20 @@ export default function ChatScreen({ route, navigation }: { route: ChatScreenRou
 
 
   useLayoutEffect(() => {
-    setCurrentChatId(chatId);
-    resetUnreadCount(chatId);
-    // resetUnreadTimestamp(chatId);
-  }, [chatId, setCurrentChatId, receiver]);
+    const handleUnread = async () => {
+      const count = await getUnreadCount(chatId); // Fetch from SQLite
+  
+      if (count > 0) {
+        setUnreadChats(prev => Math.max(prev - 1, 0)); // Avoid negative
+        await resetUnreadCount(chatId);
+      }
+  
+      setCurrentChatId(chatId);
+    };
+  
+    handleUnread();
+  }, [chatId, setCurrentChatId, setUnreadChats]);
+  
 
 
   const [lastTimestamp, setLastTimestamp] = useState<number | null>(null);

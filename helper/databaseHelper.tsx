@@ -735,4 +735,24 @@ export const syncMessages = async (token: string) => {
     }
 }
 
-
+export const initializeUnreadChats = async () => {
+    const db = await getDBConnection();
+  
+    try {
+      const [dmResults] = await db.executeSql(
+        'SELECT COUNT(*) as count FROM unread_counts WHERE count > 0'
+      );
+      const [groupResults] = await db.executeSql(
+        'SELECT COUNT(*) as count FROM groupUnreadCounts WHERE count > 0'
+      );
+  
+      const dmUnread = dmResults.rows.item(0).count || 0;
+      const groupUnread = groupResults.rows.item(0).count || 0;
+  
+      return dmUnread + groupUnread;
+    } catch (err) {
+      console.error('Error initializing unread chat count:', err);
+      return 0;
+    }
+  };
+  

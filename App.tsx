@@ -21,7 +21,6 @@ import { doc, getFirestore, onSnapshot } from '@react-native-firebase/firestore'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import mmkv from './storage';
 import { Provider } from 'react-native-paper';
-import { set } from 'date-fns';
 
 
 global.Buffer = Buffer;
