@@ -15,7 +15,6 @@ interface ProfileScreenProps {
 }
 
 const db = getFirestore();
-const currentUser = auth().currentUser;
 
 const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     const [userData, setUserData] = useState<any>(null);
@@ -122,7 +121,6 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
             await auth().signOut();
             mmkv.delete('user');
             mmkv.delete('geohash');
-            
             navigation.reset({
                 index: 0,
                 routes: [{ name: 'Login' }],
@@ -228,7 +226,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
             {activeTab === 'posts' ? (
                 posts.length > 0 ? (
-                    <PostList initialPosts={posts} lastP={lastPost} userId={userData.id} />
+                    <PostList initialPosts={posts} lastP={lastPost} userId={userData.id} isMine={true} />
                 ) : (
                     <Text style={styles.emptyText}>No posts yet.</Text>
                 )
@@ -236,7 +234,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
             {activeTab === 'events' ? (
                 events.length > 0 ? (
-                    <EventList initialEvents={events} lastE={lastEvent} userId={userData.id} />
+                    <EventList initialEvents={events} lastE={lastEvent} userId={userData.id} isMine={true} />
                 ) : (
                     <Text style={styles.emptyText}>No events yet.</Text>
                 )

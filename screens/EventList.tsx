@@ -1,18 +1,22 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, FlatList, ActivityIndicator, Text, StyleSheet, Modal, TextInput, Button, GestureResponderEvent } from 'react-native';
+import { View, FlatList, ActivityIndicator, Text, StyleSheet, Modal, TextInput, Button, GestureResponderEvent, Alert } from 'react-native';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { Event } from '../helper/types';
 import { TouchableOpacity } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Icon } from 'react-native-paper';
+
 
 interface EventListProps {
   initialEvents: Event[];
   lastE: FirebaseFirestoreTypes.DocumentSnapshot;
   userId: string;
+  isMine?: boolean;
 }
 
-const EventList = ({ initialEvents,lastE,userId }: EventListProps) => {
-//   const currentUser = auth().currentUser;
+const EventList = ({ initialEvents, lastE, userId, isMine = false }: EventListProps) => {
+  //   const currentUser = auth().currentUser;
   const [events, setEvents] = useState<Event[]>(initialEvents);
   const [lastEvent, setLastEvent] = useState<FirebaseFirestoreTypes.DocumentSnapshot | null>(lastE);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -24,7 +28,7 @@ const EventList = ({ initialEvents,lastE,userId }: EventListProps) => {
     setEventBeingEdited(event);
     setEditModalVisible(true);
   };
-  
+
 
   const fetchEvents = async () => {
     console.log('Fetching events...');
@@ -33,37 +37,37 @@ const EventList = ({ initialEvents,lastE,userId }: EventListProps) => {
       console.log('Conditions not met to fetch events');
       return;
     }
-  
+
     setLoadingMore(true);
-  
+
     try {
       let query = firestore()
         .collection('Events')
         .where('userId', '==', userId)
         .orderBy('dateTime', 'desc')
         .limit(5);
-  
+
       if (lastEvent) {
         console.log('Using lastEvent:', lastEvent.id);
         query = firestore()
-        .collection('Events')
-        .where('userId', '==', userId)
-        .orderBy('dateTime', 'desc').startAfter(lastEvent)
-        .limit(5)
+          .collection('Events')
+          .where('userId', '==', userId)
+          .orderBy('dateTime', 'desc').startAfter(lastEvent)
+          .limit(5)
       }
-  
+
       const snapshot = await query.get();
-  
+
       if (!snapshot.empty) {
         const newEvents = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
+          .map(doc => ({ id: doc.id, ...doc.data() }))
         console.log(lastE);
         console.log('Fetched new events:', newEvents);
         setEvents(prev => [...prev, ...newEvents] as Event[]);
         setLastEvent(snapshot.docs[snapshot.docs.length - 1]);
-        if(snapshot.docs.length < 5){
-            console.log('Less than 5 events returned; setting noMoreEvents to true.');
-            setNoMoreEvents(true);
+        if (snapshot.docs.length < 5) {
+          console.log('Less than 5 events returned; setting noMoreEvents to true.');
+          setNoMoreEvents(true);
         }
       } else {
         console.log('No more events to fetch');
@@ -75,8 +79,8 @@ const EventList = ({ initialEvents,lastE,userId }: EventListProps) => {
       setLoadingMore(false);
     }
   };
-  
-      
+
+
 
   const renderItem = ({ item }: { item: Event }) => (
     <View style={styles.card}>
@@ -84,30 +88,85 @@ const EventList = ({ initialEvents,lastE,userId }: EventListProps) => {
       <Text style={{ color: '#555', marginTop: 4 }}>{item.description}</Text>
       <Text style={{ marginTop: 4 }}>📍 {item.venue} </Text>
       <Text style={{ marginTop: 4, color: 'gray' }}>
-      {item.dateTime?.toLocaleString()}
-        </Text>
+        {item.dateTime?.toLocaleString()}
+      </Text>
+      {isMine && item.dateTime.getTime() > Date.now() && (
+        <>
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 50,
+            padding: 8,
+            backgroundColor: '#007BFF',
+            borderRadius: 5,
+          }}
+          onPress={() => {
+            openEditModal(item);
+          }}
+        >
+          <Icon source="pencil" size={20} color="white" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            padding: 8,
+            backgroundColor: '#FF0000',
+            borderRadius: 5,
+          }}
+          onPress={() => {
+            // Ask for confirmation before deleting
+            Alert.alert(
+              "Confirm Delete",
+              "Are you sure you want to delete this event?",
+              [
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => {
+              const eventRef = firestore().collection('Events').doc(item.id);
+              eventRef.delete()
+                .then(() => {
+            setEvents(prevEvents => prevEvents.filter(event => event.id !== item.id));
+                })
+                .catch(error => {
+            console.error("Error deleting event: ", error);
+                });
+            },
+          },
+              ]
+            );
+          }}
+        >
+          <Icon source="delete" size={20} color="white" />
+        </TouchableOpacity>
+        </>
+      )}
     </View>
   );
 
   const saveChanges = async () => {
     if (!eventBeingEdited) return;
-  
+
     try {
       const eventRef = firestore().collection('Events').doc(eventBeingEdited.id);
       await eventRef.update({
-        title: eventBeingEdited.title,
-        description: eventBeingEdited.description,
-        venue: eventBeingEdited.venue,
-        dateTime: eventBeingEdited.dateTime, // make sure this is a Timestamp
+        ...eventBeingEdited,
       });
-  
+
       // Update local state
       setEvents((prevEvents) =>
         prevEvents.map((event) =>
           event.id === eventBeingEdited.id ? { ...event, ...eventBeingEdited } : event
         )
       );
-  
+
       setEditModalVisible(false);
       setEventBeingEdited(null);
     } catch (error) {
@@ -146,7 +205,44 @@ const EventList = ({ initialEvents,lastE,userId }: EventListProps) => {
                 }
                 placeholder="Title"
               />
-              {/* more fields... */}
+              <TextInput
+                style={styles.input}
+                value={eventBeingEdited.description}
+                onChangeText={(text) =>
+                  setEventBeingEdited({ ...eventBeingEdited, description: text })
+                }
+                placeholder="Description"
+                multiline
+              />
+              <TouchableOpacity
+                style={styles.input}
+                onPress={() => {
+                  // Open DateTimePicker modal
+                  setEditModalVisible(false); // Close the current modal
+                  setTimeout(() => {
+                    setEditModalVisible(true); // Reopen modal after DateTimePicker
+                  }, 0);
+                }}
+              >
+                <Text>
+                  {eventBeingEdited.dateTime
+                    ? eventBeingEdited.dateTime.toLocaleString()
+                    : "Select Date and Time"}
+                </Text>
+              </TouchableOpacity>
+              <DateTimePicker
+                value={eventBeingEdited.dateTime || new Date()}
+                mode="datetime"
+                display="default"
+                onChange={(event, selectedDate) => {
+                  if (selectedDate) {
+                    setEventBeingEdited({
+                      ...eventBeingEdited,
+                      dateTime: selectedDate,
+                    });
+                  }
+                }}
+              />
               <Button title="Save" onPress={saveChanges} />
               <Button title="Cancel" onPress={() => setEditModalVisible(false)} color="gray" />
             </View>
@@ -201,7 +297,7 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
     borderRadius: 5,
-  },  
+  },
 });
 
 export default EventList;

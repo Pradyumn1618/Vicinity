@@ -52,14 +52,14 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
   const handleUserPress = (user: OnlineUser) => {
     setSelectedUser(user);
     setIsUserModalVisible(true);
-    navigation.navigate('UserProfile', {
-      userId : user.userId,
-    });
+    // navigation.navigate('UserProfile', {
+    //   userId : user.userId,
+    // });
   };
 
   const handleViewProfile = (user: OnlineUser) => {
     setIsUserModalVisible(false);
-    navigation.navigate('UserProfileScreen', { userId: user.userId });
+    navigation.navigate('UserProfile', { userId: user.userId });
   };
 
   const handleSendMessage = (user: OnlineUser) => {
@@ -448,7 +448,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
           </View>
 
           <TouchableOpacity
-            onPress={() => selectedUser && handleViewProfile(selectedUser)}
+            onPress={() => {selectedUser && handleViewProfile(selectedUser)}}
             style={{
               padding: 12,
               backgroundColor: '#4F46E5',
@@ -461,7 +461,7 @@ export default function InboxScreen({ navigation }: chatMainScreenProps) {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => selectedUser && handleSendMessage(selectedUser)}
+            onPress={() => {selectedUser && handleSendMessage(selectedUser)}}
             style={{
               padding: 12,
               backgroundColor: '#34D399', // Green for "Send Message"

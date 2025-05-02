@@ -51,7 +51,7 @@ export interface Event {
   id: string;
   title: string;
   description: string;
-  dateTime: FirebaseFirestoreTypes.Timestamp;
+  dateTime: Date;
   venue: string;
   geohash: string;
   location: { _latitude: number; _longitude: number };

@@ -80,6 +80,14 @@ const IndividualPostScreen = ({ navigation }) => {
                     const likeRef = doc(db, 'posts', postId, 'likes', user.id);
                     const likeSnap = await getDoc(likeRef);
                     setLiked(likeSnap.exists);
+                } else {
+                    setPost(null);
+                    setIsLoading(false);
+                    return (
+                        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                            <Text style={{ color: 'white', fontSize: 18 }}>Post not found</Text>
+                        </View>
+                    );
                 }
             } catch (err) {
                 console.error('Error fetching post:', err);
@@ -378,27 +386,21 @@ const IndividualPostScreen = ({ navigation }) => {
                         keyExtractor={item => item.id}
                         renderItem={({ item: comment }) => (
                             <View style={styles.commentContainer}>
-
-                                {/* Like button in top-right */}
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                <View style={styles.commentTopRow}>
                                     <Text style={styles.username}>{comment.username}</Text>
-                                    <TouchableOpacity onPress={() => toggleCommentLike(comment.id)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <TouchableOpacity onPress={() => toggleCommentLike(comment.id)} style={styles.likeButton}>
                                         <FontAwesome
                                             name={commentLikes[comment.id]?.liked ? 'heart' : 'heart-o'}
-                                            size={16}
-                                            color={commentLikes[comment.id]?.liked ? 'red' : 'white'}
+                                            size={14}
+                                            color={commentLikes[comment.id]?.liked ? 'red' : '#a1a1aa'}
                                         />
-                                        <Text style={{ color: 'white', marginLeft: 4, fontSize: 12 }}>
-                                            {commentLikes[comment.id]?.count || 0}
-                                        </Text>
+                                        <Text style={styles.likeCount}>{commentLikes[comment.id]?.count || 0}</Text>
                                     </TouchableOpacity>
                                 </View>
 
-                                {/* Comment text */}
                                 <Text style={styles.commentText}>{comment.text}</Text>
 
-                                {/* Action row: Reply and View Replies */}
-                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                                <View style={{ flexDirection: 'row', marginTop: 6 }}>
                                     <TouchableOpacity onPress={() => setReplyTo(comment.id)} style={{ marginRight: 20 }}>
                                         <Text style={styles.replyButton}>Reply</Text>
                                     </TouchableOpacity>
@@ -415,7 +417,6 @@ const IndividualPostScreen = ({ navigation }) => {
                                     </TouchableOpacity>
                                 </View>
 
-                                {/* Reply input */}
                                 {replyTo === comment.id && (
                                     <View style={styles.replyInputContainer}>
                                         <TextInput
@@ -423,6 +424,7 @@ const IndividualPostScreen = ({ navigation }) => {
                                             value={replyText[comment.id] || ''}
                                             onChangeText={text => setReplyText(prev => ({ ...prev, [comment.id]: text }))}
                                             placeholder="Write a reply..."
+                                            placeholderTextColor="#aaa"
                                         />
                                         <TouchableOpacity
                                             onPress={() => {
@@ -436,12 +438,11 @@ const IndividualPostScreen = ({ navigation }) => {
                                     </View>
                                 )}
 
-                                {/* Replies */}
                                 {replies[comment.id] && (
                                     <View style={styles.repliesContainer}>
                                         {replies[comment.id].map(reply => (
                                             <Text key={reply.id} style={styles.replyText}>
-                                                <Text style={{ fontWeight: 'bold' }}>{reply.username}: </Text>
+                                                <Text style={{ fontWeight: 'bold', color: '#e4e4e7' }}>{reply.username}: </Text>
                                                 {reply.text}
                                             </Text>
                                         ))}
@@ -474,71 +475,73 @@ export default IndividualPostScreen;
 
 const styles = StyleSheet.create({
     commentContainer: {
-        backgroundColor: '#27272a', // dark gray bg
-        borderRadius: 10,
-        padding: 10,
-        marginVertical: 6,
-        marginHorizontal: 8,
-        shadowColor: '#000',
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    commentHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+        backgroundColor: 'transparent',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderBottomWidth: 0.5,
+        borderBottomColor: '#3f3f46',
     },
     username: {
-        fontWeight: 'bold',
+        fontWeight: '500',
         color: '#e4e4e7',
-        fontSize: 15,
+        fontSize: 13,
     },
     commentText: {
         color: '#f4f4f5',
-        fontSize: 15,
-        marginTop: 4,
-        marginBottom: 8,
-        lineHeight: 20,
+        fontSize: 13,
+        marginTop: 2,
+        lineHeight: 18,
+    },
+    commentTopRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    likeButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 4,
+    },
+    likeCount: {
+        color: '#a1a1aa',
+        fontSize: 12,
+        marginLeft: 4,
     },
     replyButton: {
-        color: '#60a5fa', // blue-400
-        fontSize: 13,
+        color: '#60a5fa',
+        fontSize: 12,
         marginRight: 16,
     },
     replyInputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         marginTop: 6,
-        marginLeft: 16,
+        marginLeft: 14,
     },
     replyInput: {
         flex: 1,
-        backgroundColor: '#1f2937', // dark input background
+        backgroundColor: '#1f2937',
         borderRadius: 6,
         borderWidth: 1,
         borderColor: '#4b5563',
-        padding: 8,
-        fontSize: 14,
+        padding: 6,
+        fontSize: 13,
         color: 'white',
         marginRight: 8,
     },
     replySend: {
-        color: '#3b82f6', // blue-500
+        color: '#3b82f6',
         fontWeight: 'bold',
-        fontSize: 14,
+        fontSize: 13,
     },
     repliesContainer: {
-        marginTop: 8,
-        paddingLeft: 14,
-        marginLeft: 10,
-        borderLeftWidth: 2,
-        borderLeftColor: '#3f3f46',
+        marginTop: 6,
+        marginLeft: 14,
     },
     replyText: {
         color: '#d4d4d8',
-        fontSize: 14,
-        marginBottom: 10,
+        fontSize: 13,
+        marginBottom: 6,
         lineHeight: 18,
     },
     addCommentContainer: {
@@ -566,4 +569,3 @@ const styles = StyleSheet.create({
         fontSize: 16,
     },
 });
-

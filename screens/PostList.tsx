@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, FlatList, ActivityIndicator, Text, Image, StyleSheet, Dimensions, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
+import { View, FlatList, ActivityIndicator, Text, Image, StyleSheet, Dimensions, TouchableOpacity, TouchableWithoutFeedback, Alert } from 'react-native';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import Video from 'react-native-video';
 import { Post, rootStackParamList } from '../helper/types';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { Icon } from 'react-native-paper';
 
 
 
@@ -12,11 +13,12 @@ interface PostListProps {
   initialPosts: Post[],
   lastP: FirebaseFirestoreTypes.DocumentSnapshot,
   userId: string;
+  isMine?: boolean;
 }
 
 const { width } = Dimensions.get('window');
 
-const PostList = ( {initialPosts,lastP, userId} : PostListProps) => {
+const PostList = ( {initialPosts,lastP, userId,isMine = false} : PostListProps) => {
   // const currentUser = auth().currentUser;
   const navigation = useNavigation<NavigationProp<rootStackParamList>>();
   const [posts, setPosts] = useState<Post[]>(initialPosts);
@@ -106,6 +108,36 @@ const PostList = ( {initialPosts,lastP, userId} : PostListProps) => {
           paused
           resizeMode="cover"
         />
+      )}
+
+      {isMine && (
+        <TouchableOpacity
+          style={{ marginTop: 8, alignSelf: 'flex-end' }}
+          onPress={async () => {
+            try {
+              Alert.alert(
+                'Delete Post',
+                'Are you sure you want to delete this post?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'OK', onPress: async () => {
+                      try {
+                        await firestore().collection('posts').doc(item.id).delete();
+                        setPosts(prev => prev.filter(post => post.id !== item.id));
+                      } catch (error) {
+                        console.error('Error deleting post:', error);
+                      }
+                    }
+                  }
+                ]
+              );
+            } catch (error) {
+              console.error('Error deleting post:', error);
+            }
+          }}
+        >
+          <Icon source="delete" size={20} color="white" />
+        </TouchableOpacity>
       )}
 
       <Text style={styles.title}>{item.title}</Text>
