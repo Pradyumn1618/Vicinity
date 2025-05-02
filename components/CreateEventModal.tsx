@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
         padding: 16,
         flex: 1,
         justifyContent: 'center',
-        backgroundColor: '#121212',
+        backgroundColor: '#121212', // Dark background
     },
     title: {
         fontSize: 20,
@@ -298,12 +298,12 @@ const styles = StyleSheet.create({
     },
     input: {
         borderWidth: 1,
-        borderColor: '#ccc',
+        borderColor: '#8e44ad', // Purple border color
         borderRadius: 4,
         padding: 8,
         marginBottom: 8,
         color: 'white',
-        backgroundColor: '#1e1e1e',
+        backgroundColor: '#1e1e1e', // Dark input background
     },
     toggleContainer: {
         flexDirection: 'row',
@@ -318,10 +318,10 @@ const styles = StyleSheet.create({
         marginHorizontal: 4,
     },
     publicActive: {
-        backgroundColor: '#4caf50',
+        backgroundColor: '#8e44ad', // Purple for Public
     },
     privateActive: {
-        backgroundColor: '#f44336',
+        backgroundColor: '#c0392b', // Red for Private
     },
     inactive: {
         backgroundColor: '#555',
@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     addButton: {
-        backgroundColor: '#4caf50', // Green background for the "Add Member" button
+        backgroundColor: '#8e44ad', // Purple background for "Add Member"
         padding: 12,
         borderRadius: 8,
         alignItems: 'center',
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     memberCard: {
-        backgroundColor: '#1e1e1e',
+        backgroundColor: '#2c3e50', // Darker background for member card
         borderRadius: 8,
         padding: 12,
         marginBottom: 8,
@@ -352,6 +352,14 @@ const styles = StyleSheet.create({
     memberText: {
         color: '#ffffff',
         fontSize: 16,
+    },
+    buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 16,
+    },
+    buttonText: {
+        color: '#8e44ad', // Purple text for buttons
     },
 });
 
