@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Image, Button, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TextInput, Image, Button, ActivityIndicator, Alert, StyleSheet, TouchableOpacity } from 'react-native';
 import { getFirestore, doc, getDoc, updateDoc } from '@react-native-firebase/firestore';
 import { getStorage, ref } from '@react-native-firebase/storage';
 import auth from '@react-native-firebase/auth';
@@ -8,15 +8,12 @@ import { NavigationProp } from '@react-navigation/native';
 
 interface UpdateProfileScreenProps {
     navigation: NavigationProp<any>;
-    }
+}
 
 const db = getFirestore();
 const storage = getStorage();
 
-
-
-
-const UpdateProfileScreen = ({ navigation }:UpdateProfileScreenProps) => {
+const UpdateProfileScreen = ({ navigation }: UpdateProfileScreenProps) => {
   const currentUser = auth().currentUser;
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
@@ -119,36 +116,174 @@ const UpdateProfileScreen = ({ navigation }:UpdateProfileScreenProps) => {
     }
   };
 
-  if (loading) return <ActivityIndicator size="large" color="#0000ff" style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} />;
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4f26e0" />
+      </View>
+    );
+  }
 
   return (
-    <View className="flex-1 bg-white p-4">
-      <View className="items-center mb-5">
+    <View style={styles.container}>
+      <View style={styles.imageContainer}>
         <Image
-          source={profilePic ? { uri: profilePic } : { uri: 'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg' }}
-          className="w-24 h-24 rounded-full"
+          source={
+            profilePic
+              ? { uri: profilePic }
+              : { uri: 'https://img.freepik.com/premium-vector/profile-picture-placeholder-avatar-silhouette-gray-tones-icon-colored-shapes-gradient_1076610-40164.jpg' }
+          }
+          style={styles.profileImage}
         />
-        <Button title="Change Profile Picture" onPress={handleImagePick} />
+        <TouchableOpacity
+          style={styles.changeImageButton}
+          onPress={handleImagePick}
+          disabled={uploading}
+        >
+          <Text style={styles.changeImageText}>Change Profile Picture</Text>
+        </TouchableOpacity>
       </View>
 
-      <Text className="text-lg font-bold">Username</Text>
+      <Text style={styles.label}>Username</Text>
       <TextInput
-        className="border border-gray-300 rounded p-2 mb-4"
+        style={styles.input}
         value={username}
         onChangeText={setUsername}
+        placeholder="Enter username"
+        placeholderTextColor="#7A8290"
       />
 
-      <Text className="text-lg font-bold">Bio</Text>
+      <Text style={styles.label}>Bio</Text>
       <TextInput
-        className="border border-gray-300 rounded p-2 mb-4"
+        style={[styles.input, styles.textArea]}
         value={bio}
         onChangeText={setBio}
         multiline
+        placeholder="Enter bio"
+        placeholderTextColor="#7A8290"
       />
 
-      <Button title="Save Changes" onPress={handleSave} disabled={uploading} />
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.saveButton]}
+          onPress={handleSave}
+          disabled={uploading}
+        >
+          <Text style={styles.buttonText}>{uploading ? 'Saving...' : 'Save Changes'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.cancelButton]}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.buttonText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0A0B14', // Deep navy background
+    padding: 28,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0A0B14',
+  },
+  imageContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: '#4f26e0', // Purple border
+    shadowColor: '#4f26e0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    marginBottom: 16,
+  },
+  changeImageButton: {
+    backgroundColor: '#3B3D8A', // Deep indigo
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#3B3D8A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  changeImageText: {
+    color: '#F4F5F7',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  label: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#F4F5F7',
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: '#1B1C2A', // Darker input background
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    fontSize: 16,
+    color: '#F4F5F7',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(79, 38, 224, 0.2)', // Subtle purple border
+    shadowColor: '#4f26e0', // Purple shadow
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  textArea: {
+    height: 140,
+    textAlignVertical: 'top',
+    paddingTop: 16,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 16,
+    marginTop: 20,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButton: {
+    backgroundColor: '#4f26e0', // Purple for save
+    shadowColor: '#4f26e0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  cancelButton: {
+    backgroundColor: '#FF6B6B', // Coral for cancel
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  buttonText: {
+    color: '#F4F5F7',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+});
 
 export default UpdateProfileScreen;

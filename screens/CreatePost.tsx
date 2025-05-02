@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, Button, Text, TouchableOpacity, Image, Alert, ScrollView, ActivityIndicator } from 'react-native';
+import { View, TextInput, Button, Text, TouchableOpacity, Image, Alert, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import storage from '@react-native-firebase/storage';
@@ -19,7 +19,7 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
   const [content, setContent] = useState('');
   const [mediaUris, setMediaUris] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const {user} = useUser();
+  const { user } = useUser();
 
   const handleCreatePost = async () => {
     if (!title || !content) {
@@ -42,9 +42,8 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
         uploadedUrls.push(downloadUrl);
       }
 
-      // Generare uuid for the post
-      const postId = "post_"+uuid.v4();
-      
+      // Generate uuid for the post
+      const postId = "post_" + uuid.v4();
 
       // Store post data in Firestore
       const postRef = firestore().collection('posts').doc(postId);
@@ -55,11 +54,11 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
         mediaUrls: uploadedUrls, // Save all media URLs
         createdAt: firestore.FieldValue.serverTimestamp(),
         geohash6: mmkv.getString("geohash"),
-        geohash5: mmkv.getString("geohash").substring(0,5),
-        geohash4: mmkv.getString("geohash").substring(0,4),
+        geohash5: mmkv.getString("geohash").substring(0, 5),
+        geohash4: mmkv.getString("geohash").substring(0, 4),
         userId: user.id,
         username: user.username,
-        profilePic: user.profilePic
+        profilePic: user.profilePic,
       });
 
       Alert.alert('Success', 'Post created successfully!');
@@ -71,7 +70,6 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
       setUploading(false);
     }
   };
-
 
   const handleMediaUpload = () => {
     launchImageLibrary(
@@ -103,75 +101,195 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
   };
 
   return (
-    <View style={{ flex: 1 }}>
-  <ScrollView className="flex-1 bg-zinc-900 p-6">
-    <Text className="text-white text-2xl mb-4">Create New Post</Text>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Text style={styles.title}>Create New Post</Text>
 
-    <Text className="text-white mb-1">Title</Text>
-    <TextInput
-      className="bg-white p-3 rounded-lg mb-4"
-      placeholder="Enter post title"
-      value={title}
-      onChangeText={setTitle}
-      style={{ fontSize: 16 }}
-    />
+        <Text style={styles.label}>Title</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter post title"
+          placeholderTextColor="#7A8290"
+          value={title}
+          onChangeText={setTitle}
+        />
 
-    <Text className="text-white mb-1">Description</Text>
-    <TextInput
-      className="bg-white p-3 rounded-lg mb-4"
-      placeholder="Enter post description"
-      value={content}
-      onChangeText={setContent}
-      multiline
-      style={{ fontSize: 16, height: 100, textAlignVertical: 'top' }}
-    />
+        <Text style={styles.label}>Description</Text>
+        <TextInput
+          style={[styles.input, styles.textArea]}
+          placeholder="Enter post description"
+          placeholderTextColor="#7A8290"
+          value={content}
+          onChangeText={setContent}
+          multiline
+        />
 
-    <Text className="text-white mb-1">Image / Video (optional)</Text>
-    <TouchableOpacity onPress={handleMediaUpload} className="bg-zinc-700 p-3 rounded-lg mb-4">
-      <Text className="text-white text-center">Upload Media</Text>
-    </TouchableOpacity>
+        <Text style={styles.label}>Image / Video (optional)</Text>
+        <TouchableOpacity onPress={handleMediaUpload} style={styles.uploadButton}>
+          <Text style={styles.uploadButtonText}>Upload Media</Text>
+        </TouchableOpacity>
 
-    {mediaUris.length > 0 && (
-      <View className="mb-4">
-        {mediaUris.map((uri, index) => (
-          <Image
-            key={index}
-            source={{ uri }}
-            style={{ width: '100%', height: 200, borderRadius: 8, marginBottom: 10 }}
-            resizeMode="cover"
-          />
-        ))}
-      </View>
-    )}
+        {mediaUris.length > 0 && (
+          <View style={styles.mediaContainer}>
+            {mediaUris.map((uri, index) => (
+              <Image
+                key={index}
+                source={{ uri }}
+                style={styles.mediaImage}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+        )}
 
-    <Button title={uploading ? 'Creating...' : 'Create Post'} onPress={handleCreatePost} disabled={uploading} />
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.createButton]}
+            onPress={handleCreatePost}
+            disabled={uploading}
+          >
+            <Text style={styles.buttonText}>{uploading ? 'Creating...' : 'Create Post'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.cancelButton]}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.buttonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
 
-    <TouchableOpacity onPress={() => navigation.goBack()} className="mt-4">
-      <Text className="text-white text-center">Cancel</Text>
-    </TouchableOpacity>
-  </ScrollView>
-
-  {uploading && (
-    <View
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1000,
-      }}
-    >
-      <ActivityIndicator size="large" color="#ffffff" />
-      <Text style={{ color: 'white', marginTop: 10 }}>Uploading...</Text>
+      {uploading && (
+        <View style={styles.uploadingOverlay}>
+          <ActivityIndicator size="large" color="#4f26e0" />
+          <Text style={styles.uploadingText}>Uploading...</Text>
+        </View>
+      )}
     </View>
-  )}
-</View>
-
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0A0B14', // Deep navy background
+  },
+  scrollContent: {
+    padding: 28,
+    paddingBottom: 40,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#F4F5F7', // Soft white for text
+    marginBottom: 28,
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    textShadowColor: 'rgba(79, 38, 224, 0.3)', // Purple glow
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
+  label: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#F4F5F7',
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: '#1B1C2A', // Darker input background
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    fontSize: 16,
+    color: '#F4F5F7',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(79, 38, 224, 0.2)', // Subtle purple border
+    shadowColor: '#4f26e0', // Purple shadow
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  textArea: {
+    height: 140,
+    textAlignVertical: 'top',
+    paddingTop: 16,
+  },
+  uploadButton: {
+    backgroundColor: '#3B3D8A', // Deep indigo for upload button
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#3B3D8A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  uploadButtonText: {
+    color: '#F4F5F7',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  mediaContainer: {
+    marginBottom: 20,
+  },
+  mediaImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(79, 38, 224, 0.2)',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createButton: {
+    backgroundColor: '#4f26e0', // Purple for create
+    shadowColor: '#4f26e0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  cancelButton: {
+    backgroundColor: '#FF6B6B', // Coral for cancel
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  buttonText: {
+    color: '#F4F5F7',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  uploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  uploadingText: {
+    color: '#F4F5F7',
+    fontSize: 16,
+    marginTop: 10,
+  },
+});
 
 export default CreatePostScreen;

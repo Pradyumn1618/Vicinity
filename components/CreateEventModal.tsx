@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Modal, ActivityIndicator, Alert, Platform, KeyboardAvoidingView, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Modal, ActivityIndicator, Alert, Platform, KeyboardAvoidingView, TouchableOpacity } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getFirestore, collection, addDoc, serverTimestamp } from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
@@ -39,12 +39,6 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
         }
     };
 
-    // const handleUserInputChange = (index: number, value: string) => {
-    //     const updatedInputs = [...userInputs];
-    //     updatedInputs[index] = value;
-    //     setUserInputs(updatedInputs);
-    // };
-
     const handleCancel = () => {
         setUserInputs(['']);
         setForm({
@@ -58,10 +52,6 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
         });
         onClose();
     };
-
-    // const handlePlaceSelected = (venue: string, location: { lat: number; lng: number }) => {
-    //     setForm({ ...form, venue, location });
-    // };
 
     const handleCreateEvent = async () => {
         try {
@@ -138,12 +128,12 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                 style={{ flex: 1 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-
                 <View style={styles.container}>
                     <Text style={styles.title}>Create New Event</Text>
 
                     <TextInput
                         placeholder="Event Title"
+                        placeholderTextColor="#7A8290"
                         value={form.title}
                         onChangeText={text => setForm({ ...form, title: text })}
                         style={styles.input}
@@ -151,17 +141,36 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
 
                     <TextInput
                         placeholder="Description"
+                        placeholderTextColor="#7A8290"
                         value={form.description}
                         onChangeText={text => setForm({ ...form, description: text })}
                         multiline
-                        style={[styles.input, { height: 100 }]}
+                        style={[styles.input, styles.textArea]}
                     />
 
-                    <View style={{ marginBottom: 16 }}>
-                        <Button
-                            title={`Select Date: ${form.dateTime.toLocaleDateString()}`}
-                            onPress={() => setShowDatePicker(true)}
-                        />
+                    <View style={styles.dateTimeContainer}>
+                        <View style={styles.dateTimeWrapper}>
+                            <Text style={styles.dateTimeText}>
+                                {form.dateTime.toLocaleDateString()}
+                            </Text>
+                            <TouchableOpacity
+                                style={styles.iconButton}
+                                onPress={() => setShowDatePicker(true)}
+                            >
+                                <Text style={styles.iconText}>📅</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.dateTimeWrapper}>
+                            <Text style={styles.dateTimeText}>
+                                {form.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </Text>
+                            <TouchableOpacity
+                                style={styles.iconButton}
+                                onPress={() => setShowTimePicker(true)}
+                            >
+                                <Text style={styles.iconText}>🕒</Text>
+                            </TouchableOpacity>
+                        </View>
                         {showDatePicker && (
                             <DateTimePicker
                                 value={form.dateTime}
@@ -175,13 +184,6 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                                 }}
                             />
                         )}
-                    </View>
-
-                    <View style={{ marginBottom: 16 }}>
-                        <Button
-                            title={`Select Time: ${form.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                            onPress={() => setShowTimePicker(true)}
-                        />
                         {showTimePicker && (
                             <DateTimePicker
                                 value={form.dateTime}
@@ -202,18 +204,15 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
 
                     <VenueAutocomplete
                         apiKey={GOOGLE_API_KEY}
-                        // onPlaceSelected={handlePlaceSelected}
                         onPlaceSelected={(venue, location) => setForm({ ...form, venue, location })}
                     />
 
-                    {/* Fancy Toggle */}
                     <View style={styles.toggleContainer}>
                         <TouchableOpacity
                             style={[
                                 styles.toggleButton,
                                 form.public ? styles.publicActive : styles.inactive,
                             ]}
-                            // onPress={togglePublicPrivate}
                             onPress={() => setForm({ ...form, public: true })}
                         >
                             <Text style={styles.toggleText}>Public</Text>
@@ -223,7 +222,6 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                                 styles.toggleButton,
                                 !form.public ? styles.privateActive : styles.inactive,
                             ]}
-                            // onPress={togglePublicPrivate}
                             onPress={() => setForm({ ...form, public: false })}
                         >
                             <Text style={styles.toggleText}>Private</Text>
@@ -234,9 +232,9 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                         <View>
                             {userInputs.filter(input => input.trim() !== '').length > 0 && (
                                 <>
-                                    <Text style={styles.title}>Allowed Users</Text>
+                                    <Text style={styles.sectionTitle}>Allowed Users</Text>
                                     {userInputs
-                                        .filter(input => input.trim() !== '') // Filter out empty strings
+                                        .filter(input => input.trim() !== '')
                                         .map((input, index) => (
                                             <View key={index} style={styles.memberCard}>
                                                 <Text style={styles.memberText}>{input}</Text>
@@ -244,17 +242,32 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
                                         ))}
                                 </>
                             )}
-                            <TouchableOpacity style={styles.addButton} onPress={() => setShowAddMemberModal(true)}>
+                            <TouchableOpacity
+                                style={styles.addButton}
+                                onPress={() => setShowAddMemberModal(true)}
+                            >
                                 <Text style={styles.addButtonText}>Add Member</Text>
                             </TouchableOpacity>
                         </View>
                     )}
 
+                    <View style={styles.buttonContainer}>
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.createButton]}
+                            onPress={handleCreateEvent}
+                            disabled={loading}
+                        >
+                            <Text style={styles.buttonText}>Create Event</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.cancelButton]}
+                            onPress={handleCancel}
+                        >
+                            <Text style={styles.buttonText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
 
-                    <Button title="Create Event" onPress={handleCreateEvent} disabled={loading} />
-
-                    {loading && <ActivityIndicator size="large" style={{ marginTop: 16 }} />}
-                    <Button title="Cancel" onPress={handleCancel} color="red" />
+                    {loading && <ActivityIndicator size="large" color="#4f26e0" style={styles.loader} />}
                 </View>
             </KeyboardAvoidingView>
 
@@ -281,85 +294,199 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
 };
 
 const styles = StyleSheet.create({
-    scrollContainer: {
-        flexGrow: 1,
-    },
     container: {
-        padding: 16,
         flex: 1,
-        justifyContent: 'center',
-        backgroundColor: '#121212', // Dark background
+        padding: 28,
+        backgroundColor: '#0A0B14', // Deep navy background
+        borderTopLeftRadius: 1,
+        borderTopRightRadius: 1,
     },
     title: {
+        fontSize: 32,
+        fontWeight: '800',
+        color: '#F4F5F7', // Soft white for text
+        marginBottom: 28,
+        letterSpacing: 0.8,
+        textAlign: 'center',
+        textShadowColor: 'rgba(79, 38, 224, 0.3)', // Purple glow
+        textShadowOffset: { width: 0, height: 0 },
+        textShadowRadius: 8,
+    },
+    sectionTitle: {
         fontSize: 20,
-        fontWeight: 'bold',
-        marginBottom: 16,
-        color: 'white',
+        fontWeight: '700',
+        color: '#F4F5F7',
+        marginBottom: 12,
+        marginTop: 20,
     },
     input: {
+        backgroundColor: '#1B1C2A', // Darker input background
+        borderRadius: 16,
+        paddingVertical: 16,
+        paddingHorizontal: 20,
+        fontSize: 16,
+        color: '#F4F5F7',
+        marginBottom: 20,
         borderWidth: 1,
-        borderColor: '#8e44ad', // Purple border color
-        borderRadius: 4,
+        borderColor: 'rgba(79, 38, 224, 0.2)', // Subtle purple border
+        shadowColor: '#4f26e0', // Purple shadow
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+    },
+    textArea: {
+        height: 140,
+        textAlignVertical: 'top',
+        paddingTop: 16,
+    },
+    dateTimeContainer: {
+        marginBottom: 20,
+        backgroundColor: '#1B1C2A',
+        borderRadius: 12,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(79, 38, 224, 0.2)',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    dateTimeWrapper: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 10,
+    },
+    dateTimeText: {
+        color: '#F4F5F7',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    iconButton: {
+        backgroundColor: 'black', // Purple for icon buttons
+        borderRadius: 8,
         padding: 8,
-        marginBottom: 8,
-        color: 'white',
-        backgroundColor: '#1e1e1e', // Dark input background
+        shadowColor: '#4f26e0',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+    },
+    iconText: {
+        fontSize: 20,
+        color: '#F4F5F7',
     },
     toggleContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginVertical: 16,
+        backgroundColor: '#1B1C2A',
+        borderRadius: 24,
+        padding: 6,
+        marginVertical: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(79, 38, 224, 0.2)',
+        shadowColor: '#4f26e0',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
     },
     toggleButton: {
         flex: 1,
-        padding: 12,
-        borderRadius: 8,
+        paddingVertical: 14,
+        borderRadius: 18,
         alignItems: 'center',
-        marginHorizontal: 4,
+        justifyContent: 'center',
     },
     publicActive: {
-        backgroundColor: '#8e44ad', // Purple for Public
+        backgroundColor: '#4f26e0', // Purple for public
+        shadowColor: '#4f26e0',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
     },
     privateActive: {
-        backgroundColor: '#c0392b', // Red for Private
+        backgroundColor: '#FF6B6B', // Soft coral for private
+        shadowColor: '#FF6B6B',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
     },
     inactive: {
-        backgroundColor: '#555',
+        backgroundColor: 'transparent',
     },
     toggleText: {
-        color: 'white',
-        fontWeight: 'bold',
-    },
-    addButton: {
-        backgroundColor: '#8e44ad', // Purple background for "Add Member"
-        padding: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-        marginTop: 16,
-        marginBottom: 16,
-    },
-    addButtonText: {
-        color: '#ffffff', // White text for the button
+        color: '#F4F5F7',
+        fontWeight: '700',
         fontSize: 16,
-        fontWeight: 'bold',
     },
     memberCard: {
-        backgroundColor: '#2c3e50', // Darker background for member card
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 8,
+        backgroundColor: '#1B1C2A',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        borderLeftWidth: 4,
+        borderLeftColor: '#4f26e0', // Purple accent
+        flexDirection: 'row',
+        alignItems: 'center',
+        shadowColor: '#4f26e0',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
     },
     memberText: {
-        color: '#ffffff',
+        color: '#F4F5F7',
         fontSize: 16,
+        fontWeight: '600',
+    },
+    addButton: {
+        backgroundColor: '#3B3D8A', // Deep indigo for add button
+        paddingVertical: 16,
+        paddingHorizontal: 20,
+        borderRadius: 16,
+        alignItems: 'center',
+        marginTop: 16,
+        shadowColor: '#3B3D8A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+    },
+    addButtonText: {
+        color: '#F4F5F7',
+        fontSize: 16,
+        fontWeight: '700',
     },
     buttonContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginTop: 16,
+        marginTop: 28,
+        gap: 16,
+    },
+    actionButton: {
+        flex: 1,
+        paddingVertical: 16,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    createButton: {
+        backgroundColor: '#4f26e0', // Purple for create
+        shadowColor: '#4f26e0',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+    },
+    cancelButton: {
+        backgroundColor: '#FF6B6B', // Coral for cancel
+        shadowColor: '#FF6B6B',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
     },
     buttonText: {
-        color: '#8e44ad', // Purple text for buttons
+        color: '#F4F5F7',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    loader: {
+        marginTop: 24,
     },
 });
 
