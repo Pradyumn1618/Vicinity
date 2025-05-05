@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, Button, Text, TouchableOpacity, Image, Alert, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, TextInput, Button, Text, TouchableOpacity, Image, Alert, ScrollView, ActivityIndicator, StyleSheet, ToastAndroid } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import storage from '@react-native-firebase/storage';
@@ -7,6 +7,10 @@ import firestore from '@react-native-firebase/firestore';
 import uuid from 'react-native-uuid';
 import mmkv from '../storage';
 import { useUser } from '../context/userContext';
+import { launchCamera, Asset } from 'react-native-image-picker';
+import { requestCameraPermission } from '../helper/locationPermission';
+import Animated from 'react-native-reanimated';
+
 
 const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB in bytes
 
@@ -71,34 +75,108 @@ const CreatePostScreen = ({ navigation }: CreatePostScreenProps) => {
     }
   };
 
-  const handleMediaUpload = () => {
-    launchImageLibrary(
+  // const handleMediaUpload = () => {
+  //   launchImageLibrary(
+  //     {
+  //       mediaType: 'mixed',
+  //       selectionLimit: 10,
+  //     },
+  //     response => {
+  //       if (response.assets && response.assets.length > 0) {
+  //         let totalSize = 0;
+  //         const selectedAssets = response.assets.filter(asset => asset.uri && asset.fileSize);
+
+  //         for (const asset of selectedAssets) {
+  //           totalSize += asset.fileSize ?? 0;
+  //         }
+
+  //         if (totalSize > MAX_TOTAL_SIZE) {
+  //           Alert.alert('File Size Limit', 'The total size of selected media must be less than 100MB.');
+  //           return;
+  //         }
+
+  //         const selectedUris = selectedAssets.map(asset => asset.uri!) as string[];
+  //         setMediaUris(selectedUris);
+  //       } else if (response.errorCode) {
+  //         Alert.alert('Error', response.errorMessage || 'Something went wrong.');
+  //       }
+  //     }
+  //   );
+  // };
+
+
+const handleMediaUpload = () => {
+  Alert.alert(
+    'Upload Media',
+    'Choose an option',
+    [
       {
-        mediaType: 'mixed',
-        selectionLimit: 10,
+        text: 'Take Photo/Video',
+        onPress: () => openCamera(),
       },
-      response => {
-        if (response.assets && response.assets.length > 0) {
-          let totalSize = 0;
-          const selectedAssets = response.assets.filter(asset => asset.uri && asset.fileSize);
+      {
+        text: 'Choose from Gallery',
+        onPress: () => openImageLibrary(),
+      },
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+    ],
+    { cancelable: true }
+  );
+};
 
-          for (const asset of selectedAssets) {
-            totalSize += asset.fileSize ?? 0;
-          }
+const processMediaResponse = (response: { assets?: Asset[]; errorCode?: string; errorMessage?: string }) => {
+  if (response.assets && response.assets.length > 0) {
+    let totalSize = 0;
+    const selectedAssets = response.assets.filter(asset => asset.uri && asset.fileSize);
 
-          if (totalSize > MAX_TOTAL_SIZE) {
-            Alert.alert('File Size Limit', 'The total size of selected media must be less than 100MB.');
-            return;
-          }
+    for (const asset of selectedAssets) {
+      totalSize += asset.fileSize ?? 0;
+    }
 
-          const selectedUris = selectedAssets.map(asset => asset.uri!) as string[];
-          setMediaUris(selectedUris);
-        } else if (response.errorCode) {
-          Alert.alert('Error', response.errorMessage || 'Something went wrong.');
-        }
-      }
-    );
-  };
+    if (totalSize > MAX_TOTAL_SIZE) {
+      Alert.alert('File Size Limit', 'The total size of selected media must be less than 100MB.');
+      return;
+    }
+
+    const selectedUris = selectedAssets.map(asset => asset.uri!) as string[];
+    setMediaUris(selectedUris);
+  } else if (response.errorCode) {
+    Alert.alert('Error', response.errorMessage || 'Something went wrong.');
+  }
+};
+
+const openCamera = async () => {
+  const granted = await requestCameraPermission();
+  if(granted){
+  launchCamera(
+    {
+      mediaType: 'mixed',
+      cameraType: 'back',
+      saveToPhotos: true,
+    },
+    processMediaResponse
+  );
+}else{
+  ToastAndroid.show('Camera permission denied', ToastAndroid.SHORT);
+  return;
+}
+};
+
+const openImageLibrary = () => {
+  
+  launchImageLibrary(
+    {
+      mediaType: 'mixed',
+      selectionLimit: 10,
+    },
+    processMediaResponse
+  );
+
+};
+
 
   return (
     <View style={styles.container}>

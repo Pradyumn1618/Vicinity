@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   Alert,
   ToastAndroid,
   ActivityIndicator,
+  SectionList,
+  Dimensions,
 } from 'react-native';
 import Modal from 'react-native-modal';
 
@@ -42,6 +44,10 @@ import ImageViewing from "react-native-image-viewing";
 import { sendAddedToGroupNotification } from '../helper/sendNotification';
 import { useNavigation } from '@react-navigation/native';
 import { FieldValue } from '@react-native-firebase/firestore';
+import FastImage from 'react-native-fast-image';
+import { format } from 'date-fns';
+import { createThumbnail } from 'react-native-create-thumbnail';
+import Video from 'react-native-video';
 const Tab = createMaterialTopTabNavigator();
 const documentId = firestore.FieldPath.documentId();
 const storage = getStorage();
@@ -226,6 +232,10 @@ const GroupInfoTab = ({ groupId }) => {
           await updateDoc(groupRef, {
             members: arrayRemove(userId),
             admins: arrayRemove(userId),
+          });
+          const userRef = doc(db, 'users', userId);
+          await updateDoc(userRef, {
+            groups: arrayRemove(groupId),
           });
         },
       },
@@ -686,7 +696,7 @@ const GroupInfoTab = ({ groupId }) => {
                 await updateDoc(groupRef, {
                   members: arrayRemove(currentUser),
                   admins: arrayRemove(currentUser),
-                  [`joinTimes.${currentUser}`]: FieldValue.delete(),
+                  [`joinTimes.${currentUser}`]: firestore.FieldValue.delete(),
                 });
                 handleIfAdmin();
                 const userRef = doc(db, 'users', currentUser);
@@ -762,55 +772,128 @@ const EditPrompt = ({ visible, onClose, onSubmit, defaultValue, title }) => {
   );
 };
 
+const { width } = Dimensions.get('window');
+
+interface MediaItem {
+  id: string;
+  media: string;
+  timestamp: number;
+  thumb: string;
+  ext: string;
+}
+
+const groupByMonth = (items: MediaItem[]) => {
+  const grouped: { [key: string]: MediaItem[] } = {};
+  items.forEach(item => {
+    const monthKey = format(new Date(item.timestamp), 'MMMM yyyy');
+    if (!grouped[monthKey]) grouped[monthKey] = [];
+    grouped[monthKey].push(item);
+  });
+  return Object.entries(grouped).map(([title, data]) => ({ title, data }));
+};
+
 const GroupMediaTab = ({ groupId }) => {
-  const [media, setMedia] = useState([]);
+  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
   const db = getFirestore();
 
-  useEffect(() => {
+  const fetchGroupMedia = useCallback(() => {
     const q = query(
       collection(db, 'groups', groupId, 'messages'),
       where('media', '!=', null)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched = snapshot.docs.map(doc => ({
-        id: doc.id,
-        url: doc.data().media,
-        timestamp: doc.data().timestamp?.toMillis?.() || 0,
-      }));
-      setMedia(fetched.sort((a, b) => b.timestamp - a.timestamp));
+    return onSnapshot(q, async (snapshot) => {
+      const items = await Promise.all(
+        snapshot.docs.map(async (doc) => {
+          const data = doc.data();
+          const url = data.media;
+          const timestamp = data.timestamp || 0;
+          const ext = url.split('?')[0].split('.').pop().toLowerCase();
+          let thumb = url;
+
+          if (ext === 'mp4' || ext === 'mov') {
+            try {
+              const { path } = await createThumbnail({ url, timeStamp: 1000 });
+              thumb = path;
+            } catch (e) {
+              console.warn('Thumbnail error:', e);
+            }
+          }
+
+          return { id: doc.id, media: url, timestamp, thumb, ext };
+        })
+      );
+
+      const sorted = items.sort((a, b) => b.timestamp - a.timestamp);
+      setMediaList(sorted);
     });
+  }, [db, groupId]);
 
-    return unsubscribe;
-  }, [groupId, db]);
+  useEffect(() => {
+    const unsubscribe = fetchGroupMedia();
+    return () => unsubscribe();
+  }, [fetchGroupMedia]);
 
-  const renderItem = ({ item }) => (
-    <Image
-      source={{ uri: item.url }}
-      className="w-1/3 aspect-square m-1 rounded-lg border border-gray-700"
-      resizeMode="cover"
-    />
-  );
+  const openMedia = (item: MediaItem) => {
+    setSelectedMedia(item);
+    setModalVisible(true);
+  };
 
   return (
-    <View className="flex-1 bg-black">
-      {media.length === 0 ? (
-        <View className="flex-1 justify-center items-center">
-          <Text className="text-gray-400 text-base">No media found in this group</Text>
+    <View style={{ flex: 1, backgroundColor: '#000', padding: 10 }}>
+      {mediaList.length === 0 ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'gray' }}>No media found in this group</Text>
         </View>
       ) : (
-        <FlatList
-          data={media}
+        <SectionList
+          sections={groupByMonth(mediaList)}
           keyExtractor={(item) => item.id}
-          numColumns={3}
-          renderItem={renderItem}
-          contentContainerStyle={{ padding: 4 }}
+          renderItem={({ item }) => (
+            <TouchableOpacity onPress={() => openMedia(item)}>
+              <FastImage
+                source={{ uri: item.thumb }}
+                style={{ width: width / 3 - 10, height: width / 3 - 10, margin: 5, borderRadius: 8 }}
+              />
+            </TouchableOpacity>
+          )}
+          renderSectionHeader={({ section: { title } }) => (
+            <Text style={{ color: '#fff', fontSize: 16, paddingVertical: 8 }}>{title}</Text>
+          )}
         />
       )}
+
+      <Modal isVisible={modalVisible} style={{ backgroundColor: 'rgba(0, 0, 0, 0.8)' }}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center' }}>
+          <TouchableOpacity onPress={() => setModalVisible(false)} style={{ position: 'absolute', top: 50, right: 20, zIndex: 10 }}>
+            <Text style={{ color: 'white', fontSize: 18 }}>Close</Text>
+          </TouchableOpacity>
+
+          {selectedMedia?.ext === 'mp4' || selectedMedia?.ext === 'mov' ? (
+            <Video
+              source={{ uri: selectedMedia.media }}
+              style={{ width: '100%', height: '70%' }}
+              controls
+              resizeMode="contain"
+            />
+          ) : (
+            <FastImage
+              source={{ uri: selectedMedia?.media }}
+              style={{ width: '100%', height: '70%' }}
+              resizeMode={FastImage.resizeMode.contain}
+            />
+          )}
+
+          <Text style={{ color: 'white', textAlign: 'center', marginTop: 10 }}>
+            {selectedMedia?.timestamp ? new Date(selectedMedia.timestamp).toLocaleString() : ''}
+          </Text>
+        </View>
+      </Modal>
     </View>
   );
 };
-
 
 const GroupDetailsScreen = ({ route }) => {
   const { groupId } = route.params;

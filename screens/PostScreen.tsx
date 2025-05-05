@@ -21,7 +21,7 @@ import {
 import { BlurView } from '@react-native-community/blur';
 import { NavigationProp, useFocusEffect } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
-import firestore, { addDoc, collection, serverTimestamp, getFirestore, getDocs, query, orderBy, doc, setDoc, updateDoc, increment, deleteDoc, getDoc, limit, startAfter } from '@react-native-firebase/firestore';
+import firestore, { addDoc, collection, serverTimestamp, getFirestore, getDocs, query, orderBy, doc, setDoc, updateDoc, increment, deleteDoc, getDoc, limit, startAfter, FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { requestLocationPermission, requestNotificationPermission, startLocationTracking } from '../helper/locationPermission';
 import { promptForEnableLocationIfNeeded } from 'react-native-android-location-enabler';
 import NavigationBar from '../components/NavigationBar';
@@ -37,7 +37,9 @@ import GradientText from '../components/animatedText';
 import { refreshFcmToken } from '../helper/locationPermission';
 import { Menu, Provider } from "react-native-paper";
 import { useIsFocused } from '@react-navigation/native';
-import Modal from 'react-native-modal';import { useChatContext } from '../context/chatContext';
+import Modal from 'react-native-modal'; import { useChatContext } from '../context/chatContext';
+import ngeohash from 'ngeohash';
+import { useSocket } from '../helper/socketProvider';
 
 
 interface PostScreenProps {
@@ -97,6 +99,7 @@ const db = getFirestore();
 const screenWidth = Dimensions.get('window').width;
 
 const PostScreen = ({ navigation }: PostScreenProps) => {
+  const { socket } = useSocket();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [commentModalVisible, setCommentModalVisible] = useState(false);
@@ -116,8 +119,11 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
   const [likeCounts, setLikeCounts] = useState<{ [postId: string]: { liked: boolean, likeCount: number } }>({});
   const [distanceFilter, setDistanceFilter] = useState<'nearby' | 'far' | 'farther'>('nearby');
+  const [lastVisibleDoc, setLastVisibleDoc] = useState<any>(null);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const pageSize = 15; // You can tweak this
 
-  const isFocused = useIsFocused();  const {unreadChats} = useChatContext();
+  const isFocused = useIsFocused(); const { unreadChats } = useChatContext();
 
 
   useEffect(() => {
@@ -146,138 +152,216 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     }, [checkAuthentication])
   );
 
-  useEffect(() => {
-
-    const checkPermission = async () => {
-      const hasPermission = await requestLocationPermission();
-      if (hasPermission && Platform.OS === 'android') {
-        try {
-          await promptForEnableLocationIfNeeded();
-          console.log('Location enabled');
-          startLocationTracking(user?.id);
-        } catch (error: unknown) {
-          if (error instanceof Error) console.error(error.message);
+  useFocusEffect(
+    useCallback(() => {
+      const checkPermission = async () => {
+        const hasPermission = await requestLocationPermission();
+        if (hasPermission && Platform.OS === 'android') {
+          try {
+            await promptForEnableLocationIfNeeded();
+            console.log('Location enabled');
+            startLocationTracking(user?.id);
+          } catch (error: unknown) {
+            if (error instanceof Error) console.error(error.message);
+          }
+        } else if (!hasPermission) {
+          Alert.alert(
+            'Permission Required for Best Experience',
+            'Enable location in Settings > Apps > Vicinity > Permissions'
+          );
         }
-      } else if (!hasPermission) {
-        Alert.alert(
-          'Permission Required for Best Experience',
-          'Enable location in Settings > Apps > Vicinity > Permissions'
-        );
+      };
+
+      if (user) {
+        checkPermission();
       }
-    };
+    }, [user])
+  );
 
-    if (user) {
-      checkPermission();
-    }
-  }, [user]);
+  const waitForGeohash = useCallback(async (timeout = 10000) => {
+    if (!user?.id) throw new Error('User ID not available');
 
-  const waitForGeohash = async (timeout = 10000) => {
+    const db = getFirestore();
+    const userRef = doc(db, 'users', user.id);
+
+    const start = Date.now();
+
     return new Promise((resolve, reject) => {
-      const start = Date.now();
-      const interval = setInterval(() => {
-        const geo = mmkv.getString('geohash');
-        if (geo) {
+      const interval = setInterval(async () => {
+        try {
+          const userSnap = await getDoc(userRef);
+          const userData = userSnap.exists ? userSnap.data() : null;
+          const geo = userData?.geohash;
+
+          console.log('Geohash from Firestore:', geo);
+
+          if (geo) {
+            clearInterval(interval);
+            resolve(geo);
+          } else if (Date.now() - start > timeout) {
+            clearInterval(interval);
+            reject(new Error('Timeout waiting for geohash'));
+          }
+        } catch (error) {
           clearInterval(interval);
-          resolve(geo);
+          reject(error);
         }
-        if (Date.now() - start > timeout) {
-          clearInterval(interval);
-          reject(new Error('Timeout waiting for geohash'));
-        }
-      }, 200);
+      }, 500);
     });
-  };
+  },[user]);
 
 
-  const fetchPosts = useCallback(async () => {
+
+  // ✅ For first load or pull-to-refresh
+  const fetchInitialPosts = useCallback(async () => {
+    if (!user) return;
+
     try {
       setLoading(true);
       const geo = await waitForGeohash() as string;
-      let geohash = geo?.substring(0, 4);
+
+      let prefixLength = 6;
       switch (distanceFilter) {
-        case 'far':
-          geohash = geo?.substring(0,5);
-          break;
-        case 'farther':
-          geohash = geo?.substring(0,4);
-          break;
-        default:
-          geohash = geo?.substring(0,6);
+        case 'far': prefixLength = 5; break;
+        case 'farther': prefixLength = 4; break;
+        default: prefixLength = 6;
       }
-      
-      if (!geohash) return;
 
-      let querySnapshot = await firestore()
+      const centerHash = geo?.substring(0, prefixLength);
+      if (!centerHash) return;
+
+
+      const neighbors = ngeohash.neighbors(centerHash);
+      const geohashList = [centerHash, ...neighbors];
+
+      console.log('Geohash List:', geohashList);
+
+      // ✅ Choose correct field based on filter
+      const geohashField = {
+        'far': 'geohash5',
+        'farther': 'geohash4',
+      }[distanceFilter] || 'geohash6';
+
+      // ✅ Firestore does not allow more than 10 in 'in' queries
+      let baseQuery: FirebaseFirestoreTypes.Query<FirebaseFirestoreTypes.DocumentData> = firestore()
         .collection('posts')
-        .where('geohash6', '==', geohash)
-        .get();
+        .where(geohashField, 'in', geohashList)
+        .orderBy('createdAt', 'desc')
+        .limit(pageSize);
 
-      switch (distanceFilter){
-        case 'far':
-          querySnapshot = await firestore()
-          .collection('posts')
-          .where('geohash5', '==', geohash)
-          .get();
-          break;
-        case 'farther':
-          querySnapshot = await firestore()
-          .collection('posts')
-          .where('geohash4', '==', geohash)
-          .get();
-          break;
-        default :
-          querySnapshot = await firestore()
-          .collection('posts')
-          .where('geohash6', '==', geohash)
-          .get();
-      }
+      const querySnapshot = await baseQuery.get();
+      const newPosts: Post[] = querySnapshot.docs.map((doc) => ({ ...(doc.data() as Post), id: doc.id }));
 
-      const fetchedPosts: Post[] = querySnapshot.docs.map(doc => ({
-        ...(doc.data() as Post),
-        id: doc.id,
-      }));
-      const sortedPost = fetchedPosts.sort((a, b) => {
-        const aDate = a.createdAt?.toDate?.() || new Date(0);
-        const bDate = b.createdAt?.toDate?.() || new Date(0);
-        return bDate.getTime() - aDate.getTime();
-      });
-      setPosts((prevPosts) => {
-        const mergedPosts = [...prevPosts];
-        sortedPost.forEach((newPost) => {
-          const index = mergedPosts.findIndex((post) => post.id === newPost.id);
-          if (index !== -1) {
-            mergedPosts[index] = newPost;
-          } else {
-            mergedPosts.push(newPost);
-          }
+      const lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1] || null;
+      setLastVisibleDoc(lastDoc);
+      setHasMorePosts(querySnapshot.docs.length === pageSize);
+      setPosts(newPosts);
+      mmkv.set('posts', JSON.stringify(newPosts));
+
+      setCommentCounts(() => {
+        const newCounts: Record<string, number> = {};
+        newPosts.forEach(post => {
+          newCounts[post.id] = post.commentCount || 0;
         });
-        return mergedPosts;
+        return newCounts;
       });
-      mmkv.set('posts', JSON.stringify(sortedPost));
-      setCommentCounts(fetchedPosts.reduce((acc, post) => {
-        acc[post.id] = post.commentCount || 0;
-        return acc;
-      }, {}));
 
-      const likedP = await Promise.all(
-        sortedPost.map(async (post) => {
-          const likeRef = doc(db, 'posts', post.id, 'likes', user?.id);
-          const likeDoc = await getDoc(likeRef);
-          return {
-            [post.id]: {liked:likeDoc.exists,likeCount: post.likeCount || 0}
-          };
-        })
-      );
-      console.log(likedP);
+      const likedP = await Promise.all(newPosts.map(async (post) => {
+        const likeRef = doc(db, 'posts', post.id, 'likes', user.id);
+        const likeDoc = await getDoc(likeRef);
+        return {
+          [post.id]: {
+            liked: likeDoc.exists,
+            likeCount: post.likeCount || 0,
+          },
+        };
+      }));
       setLikeCounts(Object.assign({}, ...likedP));
     } catch (err) {
-      console.error('Error fetching posts:', err);
+      console.error('Error in fetchInitialPosts:', err);
     } finally {
       setLoading(false);
     }
-  }, [user, distanceFilter]);
+  }, [user, distanceFilter,waitForGeohash]);
 
-  const loadCachedPosts = () => {
+  // ✅ For loading more (pagination)
+  const fetchMorePosts = useCallback(async () => {
+    if (!user || !hasMorePosts || !lastVisibleDoc) return;
+
+    try {
+      setLoading(true);
+      const geo = await waitForGeohash() as string;
+
+      let prefixLength = 6;
+      switch (distanceFilter) {
+        case 'far': prefixLength = 5; break;
+        case 'farther': prefixLength = 4; break;
+        default: prefixLength = 6;
+      }
+
+      const centerHash = geo?.substring(0, prefixLength);
+      if (!centerHash) return;
+
+
+      const neighbors = ngeohash.neighbors(centerHash);
+      const geohashList = [centerHash, ...neighbors];
+
+      console.log('Geohash List:', geohashList);
+
+      // ✅ Choose correct field based on filter
+      const geohashField = {
+        'far': 'geohash5',
+        'farther': 'geohash4',
+      }[distanceFilter] || 'geohash6';
+
+      // ✅ Firestore does not allow more than 10 in 'in' queries
+      let baseQuery: FirebaseFirestoreTypes.Query<FirebaseFirestoreTypes.DocumentData> = firestore()
+        .collection('posts')
+        .where(geohashField, 'in', geohashList)
+        .orderBy('createdAt', 'desc')
+        .limit(pageSize);
+
+      const querySnapshot = await baseQuery.get();
+      const newPosts: Post[] = querySnapshot.docs.map((doc) => ({ ...(doc.data() as Post), id: doc.id }));
+
+      const lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1] || null;
+      setLastVisibleDoc(lastDoc);
+      setHasMorePosts(querySnapshot.docs.length === pageSize);
+
+      setPosts((prevPosts) => {
+        const all = [...prevPosts, ...newPosts];
+        return Array.from(new Map(all.map((p) => [p.id, p])).values());
+      });
+
+      setCommentCounts((prev) => {
+        const newCounts = { ...prev };
+        newPosts.forEach(post => {
+          newCounts[post.id] = post.commentCount || 0;
+        });
+        return newCounts;
+      });
+
+      const likedP = await Promise.all(newPosts.map(async (post) => {
+        const likeRef = doc(db, 'posts', post.id, 'likes', user.id);
+        const likeDoc = await getDoc(likeRef);
+        return {
+          [post.id]: {
+            liked: likeDoc.exists,
+            likeCount: post.likeCount || 0,
+          },
+        };
+      }));
+      setLikeCounts((prev) => ({ ...prev, ...Object.assign({}, ...likedP) }));
+    } catch (err) {
+      console.error('Error in fetchMorePosts:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, distanceFilter, lastVisibleDoc, hasMorePosts]);
+
+
+  useEffect(() => {
+    if (!user) return;
     const cachedPosts = mmkv.getString('posts');
     if (cachedPosts) {
       const parsedPosts = JSON.parse(cachedPosts);
@@ -286,20 +370,39 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
         acc[post.id] = post.commentCount || 0;
         return acc;
       }, {}));
-    }
-  };
 
-  useEffect(() => {
-    if (!user) return;
-    loadCachedPosts();
-    fetchPosts();
-  }, [user, fetchPosts]);
+      const likedP = parsedPosts.map((post) => {
+        const likeRef = doc(db, 'posts', post.id, 'likes', user?.id);
+        return getDoc(likeRef).then((likeDoc) => ({
+          [post.id]: {
+            liked: likeDoc.exists,
+            likeCount: post.likeCount || 0,
+          },
+        }));
+      });
+      Promise.all(likedP).then((likedPosts) => {
+        setLikeCounts((prev) => ({ ...prev, ...Object.assign({}, ...likedPosts) }));
+      });
+    }
+    // Force refresh from server
+    console.log(user);
+    fetchInitialPosts();
+  }, [user, fetchInitialPosts]);
+
 
   const likeComment = async (postId: string, commentId: string, liked: boolean) => {
     try {
       const likeRef = doc(db, 'posts', postId, 'comments', commentId, 'likes', user.id);
       const commentRef = doc(db, 'posts', postId, 'comments', commentId);
 
+      setCommentLikes((prev) => ({
+        ...prev,
+        [commentId]: {
+          liked: !liked,
+          likeCount: (prev[commentId]?.likeCount || 0) + (liked ? -1 : 1),
+        },
+      }));
+      liked = !liked;
       if (liked) {
         await setDoc(likeRef, { likedAt: serverTimestamp() });
         await updateDoc(commentRef, { likeCount: increment(1) });
@@ -307,36 +410,37 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
         await deleteDoc(likeRef);
         await updateDoc(commentRef, { likeCount: increment(-1) });
       }
+
     } catch (err) {
       console.error('Error updating like status:', err);
     }
   };
 
   const toggleLike = async (postId: string) => {
-    try{
-    const liked = likeCounts[postId].liked;
-    setLikeCounts((prev) => ({
-      ...prev,
-      [postId]: { liked: !liked, likeCount: (prev[postId]?.likeCount || 0) + (liked ? -1 : 1) },
-    }));
+    try {
+      const liked = likeCounts[postId].liked;
+      setLikeCounts((prev) => ({
+        ...prev,
+        [postId]: { liked: !liked, likeCount: (prev[postId]?.likeCount || 0) + (liked ? -1 : 1) },
+      }));
       const postRef = doc(db, 'posts', postId);
-    if (liked) {
-      await updateDoc(postRef, { likeCount: increment(-1) });
-      const likeRef = doc(db,'posts',postId,'likes',user.id);
-      await deleteDoc(likeRef);
-      
-    } else {
-      await updateDoc(postRef, { likeCount: increment(1) });
-      const likeRef = doc(db,'posts',postId,'likes',user.id);
-      await setDoc(likeRef,{id:user.id});
+      if (liked) {
+        await updateDoc(postRef, { likeCount: increment(-1) });
+        const likeRef = doc(db, 'posts', postId, 'likes', user.id);
+        await deleteDoc(likeRef);
+
+      } else {
+        await updateDoc(postRef, { likeCount: increment(1) });
+        const likeRef = doc(db, 'posts', postId, 'likes', user.id);
+        await setDoc(likeRef, { id: user.id });
+      }
+      setPosts((prevPosts) =>
+        prevPosts.map((post) => (post.id === postId ? { ...post, likeCount: post.likeCount + (liked ? -1 : 1) } : post))
+      );
+    } catch (error) {
+      console.log(error);
     }
-    setPosts((prevPosts) =>
-      prevPosts.map((post) => (post.id === postId ? { ...post, likeCount: post.likeCount + (liked ? -1 : 1) } : post))
-    );
-  }catch(error){
-    console.log(error);
-  }
-    
+
   };
 
   const openComments = (postId: string) => {
@@ -545,6 +649,16 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
   };
 
   const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+  const [visiblePostId, setVisiblePostId] = useState(null);
+
+  const onPostViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems.length > 0) {
+      setVisiblePostId(viewableItems[0].item.id);
+    }
+  }).current;
+
+  const postViewConfig = useRef({ itemVisiblePercentThreshold: 70 }).current;
+
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems?.length > 0) {
@@ -581,129 +695,132 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
     }
   };
 
-  const renderItem = ({ item }: { item: Post }) => (
-    <TouchableOpacity
-      disabled={isSwiping}
-      onPress={() => {
-        navigation.navigate('Post', { postId: item.id });
-      }}
-    >
-      <View style={styles.postContainer}>
-        <View style={styles.postHeader}>
-          <TouchableOpacity
-            style={styles.userInfo}
-            onPress={() => navigation.navigate('UserProfile', { userId: item.userId })}
-          >
-            <Image
-              source={{ uri: item.profilePic || 'https://yourapp.com/default-profile.png' }}
-              style={styles.profileImage}
-            />
-            <Text style={styles.username}>@{item.username}</Text>
-          </TouchableOpacity>
-
-          <View style={styles.menuContainer}>
-            <Menu
-              visible={menuVisible === item.id}
-              onDismiss={() => setMenuVisible(null)}
-              anchor={
-                <TouchableOpacity onPress={() => setMenuVisible(item.id)}>
-                  <Icon name="more-vertical" size={20} color="#F4F5F7" />
-                </TouchableOpacity>
-              }
+  const renderItem = ({ item }: { item: Post }) => {
+    const isinView = isFocused && visiblePostId === item.id;
+    return (
+      <TouchableOpacity
+        disabled={isSwiping}
+        onPress={() => {
+          navigation.navigate('Post', { postId: item.id });
+        }}
+      >
+        <View style={styles.postContainer}>
+          <View style={styles.postHeader}>
+            <TouchableOpacity
+              style={styles.userInfo}
+              onPress={() => navigation.navigate('UserProfile', { userId: item.userId })}
             >
-              <Menu.Item
-                onPress={async () => {
-                  await sharePost(item);
-                  setMenuVisible(null);
-                }}
-                title="Share"
+              <Image
+                source={{ uri: item.profilePic || 'https://yourapp.com/default-profile.png' }}
+                style={styles.profileImage}
               />
-              <Menu.Item
-                onPress={async () => {
-                  await savePost(item);
-                  setMenuVisible(null);
-                }}
-                title="Save Post"
-              />
-            </Menu>
-          </View>
-        </View>
-        <Text style={styles.postTitle}>{item.title}</Text>
-        <Text style={styles.postContent}>{item.content}</Text>
+              <Text style={styles.username}>@{item.username}</Text>
+            </TouchableOpacity>
 
-        {item.mediaUrls?.length > 0 && (
-          <>
-            <FlatList
-              data={item.mediaUrls}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(url, index) => `${item.id}-${index}`}
-              onTouchStart={() => setIsSwiping(true)}
-              onTouchEnd={() => setIsSwiping(false)}
-              renderItem={({ item: url, index }) =>
-                isVideo(url) ? (
-                  <Video
-                    source={{ uri: url }}
-                    style={styles.media}
-                    resizeMode="cover"
-                    paused={currentMediaIndex !== index || !isFocused}
-                    controls
-                  />
-                ) : (
-                  <Image
-                    source={{ uri: url }}
-                    style={styles.media}
-                    resizeMode="cover"
-                  />
-                )
-              }
-              onViewableItemsChanged={onViewableItemsChanged.current}
-              viewabilityConfig={viewConfigRef.current}
-            />
-            <View style={styles.mediaIndicators}>
-              {item.mediaUrls.map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.indicator,
-                    index === currentMediaIndex ? styles.activeIndicator : styles.inactiveIndicator,
-                  ]}
+            <View style={styles.menuContainer}>
+              <Menu
+                visible={menuVisible === item.id}
+                onDismiss={() => setMenuVisible(null)}
+                anchor={
+                  <TouchableOpacity onPress={() => setMenuVisible(item.id)}>
+                    <Icon name="more-vertical" size={20} color="#F4F5F7" />
+                  </TouchableOpacity>
+                }
+              >
+                <Menu.Item
+                  onPress={async () => {
+                    await sharePost(item);
+                    setMenuVisible(null);
+                  }}
+                  title="Share"
                 />
-              ))}
+                <Menu.Item
+                  onPress={async () => {
+                    await savePost(item);
+                    setMenuVisible(null);
+                  }}
+                  title="Save Post"
+                />
+              </Menu>
             </View>
-          </>
-        )}
-
-        <Text style={styles.timestamp}>
-          {item.createdAt?.toDate?.().toLocaleString?.() || 'Just now'}
-        </Text>
-
-        <View style={styles.actions}>
-          <View style={styles.commentSection}>
-            <TouchableOpacity onPress={() => toggleLike(item.id)} style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <FontAwesome
-                name={likeCounts[item.id]?.liked ? 'heart' : 'heart-o'}
-                size={20}
-                color={likeCounts[item.id]?.liked ? '#FF6B6B' : '#F4F5F7'}
-              />
-              {likeCounts[item.id]?.likeCount > 0 && (
-                <Text style={[styles.commentCount, { marginLeft: 6 }]}>{likeCounts[item.id].likeCount}</Text>
-              )}
-            </TouchableOpacity>
           </View>
-          <View style={styles.commentSection}>
-            <TouchableOpacity onPress={() => openComments(item.id)}>
-              <Icon name="message-circle" size={18} color="#F4F5F7" />
-            </TouchableOpacity>
-            {commentCounts[item.id] > 0 && (
-              <Text style={styles.commentCount}>{commentCounts[item.id]}</Text>
-            )}
+          <Text style={styles.postTitle}>{item.title}</Text>
+          <Text style={styles.postContent}>{item.content}</Text>
+
+          {item.mediaUrls?.length > 0 && (
+            <>
+              <FlatList
+                data={item.mediaUrls}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={(url, index) => `${item.id}-${index}`}
+                onTouchStart={() => setIsSwiping(true)}
+                onTouchEnd={() => setIsSwiping(false)}
+                renderItem={({ item: url, index }) =>
+                  isVideo(url) ? (
+                    <Video
+                      source={{ uri: url }}
+                      style={styles.media}
+                      resizeMode="cover"
+                      paused={currentMediaIndex !== index || !isinView}
+                      controls
+                    />
+                  ) : (
+                    <Image
+                      source={{ uri: url }}
+                      style={styles.media}
+                      resizeMode="cover"
+                    />
+                  )
+                }
+                onViewableItemsChanged={onViewableItemsChanged.current}
+                viewabilityConfig={viewConfigRef.current}
+              />
+              <View style={styles.mediaIndicators}>
+                {item.mediaUrls.map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.indicator,
+                      index === currentMediaIndex ? styles.activeIndicator : styles.inactiveIndicator,
+                    ]}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+
+          <Text style={styles.timestamp}>
+            {item.createdAt?.toDate?.().toLocaleString?.() || 'Just now'}
+          </Text>
+
+          <View style={styles.actions}>
+            <View style={styles.commentSection}>
+              <TouchableOpacity onPress={() => toggleLike(item.id)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <FontAwesome
+                  name={likeCounts[item.id]?.liked ? 'heart' : 'heart-o'}
+                  size={20}
+                  color={likeCounts[item.id]?.liked ? '#FF6B6B' : '#F4F5F7'}
+                />
+                {likeCounts[item.id]?.likeCount > 0 && (
+                  <Text style={[styles.commentCount, { marginLeft: 6 }]}>{likeCounts[item.id].likeCount}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            <View style={styles.commentSection}>
+              <TouchableOpacity onPress={() => openComments(item.id)}>
+                <Icon name="message-circle" size={18} color="#F4F5F7" />
+              </TouchableOpacity>
+              {commentCounts[item.id] > 0 && (
+                <Text style={styles.commentCount}>{commentCounts[item.id]}</Text>
+              )}
+            </View>
           </View>
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    )
+  };
 
   if (!user) {
     return (
@@ -725,29 +842,29 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
             distanceFilter={distanceFilter}
             setDistanceFilter={setDistanceFilter}
           />
-            <TouchableOpacity onPress={() => navigation.navigate('Inbox')} style={styles.inboxButton}>
+          <TouchableOpacity onPress={() => navigation.navigate('Inbox')} style={styles.inboxButton}>
             <Icon1 name="chat" size={24} color="#F4F5F7" />
             {unreadChats > 0 && (
               <View
-              style={{
-                position: 'absolute',
-                top: -4,
-                right: -4,
-                backgroundColor: '#FF6B6B',
-                borderRadius: 8,
-                paddingHorizontal: 4,
-                paddingVertical: 2,
-                minWidth: 16,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+                style={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -4,
+                  backgroundColor: '#FF6B6B',
+                  borderRadius: 8,
+                  paddingHorizontal: 4,
+                  paddingVertical: 2,
+                  minWidth: 16,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
-              <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
-                {unreadChats > 99 ? '99+' : unreadChats}
-              </Text>
+                <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                  {unreadChats > 99 ? '99+' : unreadChats}
+                </Text>
               </View>
             )}
-            </TouchableOpacity>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.content}>
@@ -766,15 +883,19 @@ const PostScreen = ({ navigation }: PostScreenProps) => {
                 <Text style={styles.emptyText}>No posts available in your area.</Text>
               }
               refreshing={loading}
-              onRefresh={fetchPosts}
+              onRefresh={fetchInitialPosts}
+              onEndReached={() => { if (!loading && hasMorePosts && posts.length >= 15) { fetchMorePosts(); } }}
+              onEndReachedThreshold={0.5}
+              onViewableItemsChanged={onPostViewableItemsChanged}
+              viewabilityConfig={postViewConfig}
             />
           )}
 
           <Modal
-            visible={commentModalVisible}
-            animationType="fade"
-            transparent={true}
-            onRequestClose={() => {
+            isVisible={commentModalVisible}
+            animationIn="fadeIn"
+            animationOut="fadeOut"
+            onBackdropPress={() => {
               setCommentModalVisible(false);
               setComments([]);
               setCommentLikes({});
@@ -995,7 +1116,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   media: {
-    width: screenWidth - 40,
+    width: screenWidth - 65,
     height: 250,
     borderRadius: 8,
     marginRight: 10,

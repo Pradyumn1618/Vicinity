@@ -57,6 +57,24 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, o
         try {
             setLoading(true);
 
+            // Validate form fields
+            if (!form.title.trim()) {
+                Alert.alert('Validation Error', 'Event title is required.');
+                return;
+            }
+            if (!form.description.trim()) {
+                Alert.alert('Validation Error', 'Event description is required.');
+                return;
+            }
+            if (!form.dateTime || isNaN(new Date(form.dateTime).getTime())) {
+                Alert.alert('Validation Error', 'A valid event date and time is required.');
+                return;
+            }
+            if (!form.venue.trim()) {
+                Alert.alert('Validation Error', 'Event venue is required.');
+                return;
+            }
+
             // Generate geohash for the venue location
             const geohash5 = geohashForLocation([form.location.lat, form.location.lng]).substring(0, 5);
             const geohash4 = geohash5.substring(0, 4);

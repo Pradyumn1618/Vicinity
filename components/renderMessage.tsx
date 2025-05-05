@@ -2,6 +2,10 @@ import moment from "moment";
 import React from "react";
 import { Pressable, Text, TouchableOpacity, View } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import ParsedText from 'react-native-parsed-text';
+import { Linking } from 'react-native';
+
+
 
 interface Message {
   id: string;
@@ -9,7 +13,7 @@ interface Message {
   sender: string;
   timestamp: number;
   media?: string | null;
-  replyTo?: {text:string,id:string} | null;
+  replyTo?: { text: string, id: string } | null;
   delivered?: boolean;
   seen?: boolean;
 }
@@ -21,6 +25,11 @@ type DividerItem = {
 };
 
 type DecoratedMessage = Message & { type: 'message' } | DividerItem;
+
+const handleUrlPress = url => Linking.openURL(url);
+const handlePhonePress = phone => Linking.openURL(`tel:${phone}`);
+const handleEmailPress = email => Linking.openURL(`mailto:${email}`);
+
 
 interface RenderMessageProps {
   item: DecoratedMessage; // The message or divider object
@@ -92,7 +101,18 @@ const RenderMessage = ({
         {item.media ? renderMedia(item.media as string, () => handleMediaPress(item.media as string)) : null}
 
         <Pressable onLongPress={() => handleLongPress(item.text)}>
-          <Text className="text-white">{item.text}</Text>
+          {/* <Text className="text-white">{item.text}</Text>
+           */}
+          <ParsedText
+            style={{ color: 'white', fontSize: 16 }}
+            parse={[
+              { type: 'url', style: { color: 'skyblue' }, onPress: handleUrlPress },
+              { type: 'phone', style: { color: 'lightgreen' }, onPress: handlePhonePress },
+              { type: 'email', style: { color: 'orange' }, onPress: handleEmailPress },
+            ]}
+          >
+            {item.text}
+          </ParsedText>
         </Pressable>
 
         <View className="flex-row justify-between mt-1">

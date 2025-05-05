@@ -134,8 +134,8 @@ const SavedPostsScreen = ({ navigation }: SavedPostsScreenProps) => {
                     <Video
                       source={{ uri: url }}
                       style={{
-                        width: containerWidth,
-                        height: containerWidth * 0.5625, // Maintain 16:9 aspect ratio
+                        width: containerWidth - 40,
+                        height: (containerWidth - 40) * 0.5625, // Maintain 16:9 aspect ratio
                         borderRadius: 8,
                         marginRight: 10,
                       }}

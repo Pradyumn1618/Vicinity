@@ -101,6 +101,9 @@ const AppContent = () => {
       } else if (user && navigationRef.isReady() && remoteMessage.data?.purpose === 'group-message') {
         const groupId = remoteMessage.data?.customKey ?? '';
         navigationRef.dispatch(StackActions.replace('GroupChatScreen', { groupId }));
+      } else if (user && navigationRef.isReady() && remoteMessage.data?.purpose === 'addedToGroup') {
+        const groupId = remoteMessage.data?.customKey ?? '';
+        navigationRef.dispatch(StackActions.replace('GroupChatScreen', { groupId }));
       }
     });
 
@@ -281,6 +284,20 @@ const AppContent = () => {
           if(unreadCount === 1) {
             setUnreadChats((prev) => prev + 1);
           }
+        }
+        return;
+      }
+      if(purpose === 'addedToGroup') {
+        const groupId = remoteMessage.data?.customKey;
+        if (groupId === currentChatId) {
+          console.log('Same group chat — no notification shown');
+          return; // Don't show notification
+        } else {
+          setGroupNotificationData({
+            title: remoteMessage.notification?.title || 'Added to Group',
+            body: remoteMessage.notification?.body || 'You have been added to a new group.',
+            groupId: groupId ?? '',
+          });
         }
         return;
       }

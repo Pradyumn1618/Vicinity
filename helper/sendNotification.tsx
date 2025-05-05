@@ -133,7 +133,7 @@ export const sendGroupNotification = async (
           ? await sendDataNotification(payload)
           : await sendNotification({
               ...payload,
-              title: `${groupData.groupName}: ${message.senderName} replied to your message`,
+              title: `${groupData.name}: ${message.senderName} replied to your message`,
               body: message.text,
             });
         console.log("Reply notification sent:", res.data);
@@ -175,7 +175,7 @@ export const sendGroupNotification = async (
     try {
       const res = await sendNotification({
         token: normalFcmTokens,
-        title: `${groupData.groupName}: ${message.senderName} sent a message`,
+        title: `${groupData.name}: ${message.senderName} sent a message`,
         body: message.text,
         data: {
           purpose: 'group-message',

@@ -5,9 +5,10 @@ import Geolocation from 'react-native-geolocation-service';
 import Geohash from 'ngeohash';
 import mmkv from '../storage';
 import { collection, GeoPoint, getFirestore,doc,getDoc,setDoc } from "@react-native-firebase/firestore";
-import { useSocket } from "./socketProvider";
+// import { useSocket } from "./socketProvider";
 import messaging from '@react-native-firebase/messaging';
 import auth from '@react-native-firebase/auth';
+import socket from "../config/socket";
 
 
 
@@ -61,6 +62,7 @@ export const requestLocationPermission = async () => {
 
 export const startLocationTracking = (userId: string) => {
   console.log('Starting location tracking...');
+  console.log('userId:', userId);
     Geolocation.watchPosition(
       async position => {
         const { latitude, longitude } = position.coords;
@@ -68,26 +70,22 @@ export const startLocationTracking = (userId: string) => {
         console.log("geohash",currentGeoHash);
   
         const oldHash = mmkv.getString('geohash');
-        if(!oldHash){
-          const db = getFirestore();
-          const userRef = doc(db, 'users', userId);
-          const userSnap = await getDoc(userRef);
-          const userData = userSnap.data();
-          if(!userData?.geohash){
-            await setDoc(userRef, {
-              geohash: currentGeoHash,
-              location: new GeoPoint(latitude, longitude),
-            });
-          }
-          mmkv.set('geohash', currentGeoHash);
-          console.log('Geohash set for the first time:', currentGeoHash);
-          return;
-        }
+        console.log('Old geohash:', oldHash);
+        const userRef = doc(firestore, 'users', userId);
+        const userSnap = await getDoc(userRef);
+        const userData = userSnap.data();
+        const geohash = userData?.geohash;
+
+        console.log('User geohash from Firestore:', geohash);
+
   
-        if (currentGeoHash !== oldHash) {
+        if (currentGeoHash !== oldHash || geohash !== currentGeoHash) {
+          try{
           mmkv.set('geohash', currentGeoHash);
           console.log('Geohash updated:', currentGeoHash);
-          const socket = useSocket();
+          if(!socket.connected){
+            socket.connect();
+          }
           socket.emit('update_location', {
             userId,
             geohash: currentGeoHash,
@@ -96,18 +94,16 @@ export const startLocationTracking = (userId: string) => {
 
           // Firestore update
           if (userId !== '') {
-            const userRef = collection(firestore, 'users').doc(userId);
-            await userRef.update({
+            const userRef2 = doc(firestore, 'users', userId);
+            await setDoc(userRef2, {
               geohash: currentGeoHash,
               location: new GeoPoint(latitude, longitude),
-            })
-            .then(() => {
-              console.log('Location updated successfully');
-            })
-            .catch((error) => {
-              console.error('Error updating location:', error);
-            });
+            }, { merge: true });
+            console.log('Firestore updated with new geohash:', currentGeoHash);
           }
+        }catch (error) {
+          console.error('Error updating Firestore:', error);
+        }
   
           // Notify page/component
         }
@@ -117,7 +113,7 @@ export const startLocationTracking = (userId: string) => {
       },
       {
         enableHighAccuracy: true,
-        // distanceFilter: 20, // Update only if user moves 20+ meters
+        distanceFilter: 20, // Update only if user moves 20+ meters
         interval: 10000, // Every 10 seconds
         fastestInterval: 5000,
       }
@@ -190,4 +186,25 @@ export const requestNotificationPermission = async () => {
     }
   };
 
-  
+  export const requestCameraPermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: 'Camera Permission',
+            message: 'This app needs access to your camera',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
+    } else {
+      return true; // iOS handled via plist
+    }
+  };

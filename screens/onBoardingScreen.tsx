@@ -74,13 +74,13 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
         checkUserProfile();
     }, [navigation, user]);
 
-    if (!user) {
-        return (
-            <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>Loading...</Text>
-            </View>
-        );
-    }
+    // if (!user) {
+    //     return (
+    //         <View style={styles.loadingContainer}>
+    //             <Text style={styles.loadingText}>Loading...</Text>
+    //         </View>
+    //     );
+    // }
 
     const isUsernameUnique = async (name: string) => {
         const usersRef = collection(db, "users");
@@ -142,10 +142,15 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
     };
 
     const saveUserDataWithGeohash = async (userId: string, username: string, bio: string, profilePic: string, fcmToken: string) => {
-        let userData: any = { username, bio, profilePic, fcmToken };
-        const userRef = doc(db, "users", userId);
-        await setDoc(userRef, userData, { merge: true });
-        console.log("User data saved:", userData);
+        try {
+            let userData: any = { username, bio, profilePic, fcmToken };
+            const userRef = doc(db, "users", userId);
+            await setDoc(userRef, userData, { merge: true });
+
+            console.log("User data saved:", userData);
+        } catch (error) {
+            console.log(error);
+        }
     };
 
     const handleSubmit = async () => {
@@ -166,6 +171,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             }
 
             await saveUserDataWithGeohash(user.uid, username, bio, profilePic, await getFCMToken());
+            setLoading(false);
             navigation.reset({ index: 0, routes: [{ name: "Home" }] });
         } catch (err) {
             console.error(err);
@@ -231,6 +237,7 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
                 <TouchableOpacity
                     style={[styles.actionButton, styles.cancelButton]}
                     onPress={() => navigation.goBack()}
+                    disabled={loading || uploading}
                 >
                     <Text style={styles.buttonText}>Cancel</Text>
                 </TouchableOpacity>
