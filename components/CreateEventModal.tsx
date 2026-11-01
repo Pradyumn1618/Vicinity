@@ -15,7 +15,7 @@ interface CreateEventModalProps {
     onEventCreated: () => void;
 }
 
-const GOOGLE_API_KEY = 'AIzaSyDnZC4J2uKlWfFV-KDghvHn-BnWfzFo1YI';
+const GOOGLE_API_KEY = 'API-KEY';
 
 const CreateEventModal: React.FC<CreateEventModalProps> = ({ visible, onClose, onEventCreated }) => {
     const [form, setForm] = useState({
