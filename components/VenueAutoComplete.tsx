@@ -4,7 +4,7 @@ import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplet
 
 interface VenueAutocompleteProps {
     onPlaceSelected: (venue: string, location: { lat: number; lng: number }) => void;
-    apiKey: 'AIzaSyDnZC4J2uKlWfFV-KDghvHn-BnWfzFo1YI';
+    apiKey: 'API-KEY';
 }
 
 const VenueAutocomplete: React.FC<VenueAutocompleteProps> = ({ onPlaceSelected, apiKey }) => {
